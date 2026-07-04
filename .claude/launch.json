@@ -4,7 +4,7 @@
     {
       "name": "fns-site",
       "runtimeExecutable": "node",
-      "runtimeArgs": ["server.js"],
+      "runtimeArgs": ["server/dist/main.js"],
       "port": 4173
     }
   ]

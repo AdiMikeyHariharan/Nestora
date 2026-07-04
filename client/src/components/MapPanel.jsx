@@ -33,7 +33,7 @@ export default function MapPanel({ properties, landmark, radiusKm, height }) {
   }, [located, landmark]);
 
   return (
-    <div className="map-panel" style={height ? { height } : undefined}>
+    <div className="relative z-[1] overflow-hidden rounded-2xl ring-1 ring-slate-200 shadow-lg shadow-slate-900/5" style={{ height: height || 420 }}>
       <MapContainer center={[20.6, 78.9]} zoom={5} scrollWheelZoom={false}>
         <TileLayer
           attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
@@ -42,7 +42,7 @@ export default function MapPanel({ properties, landmark, radiusKm, height }) {
         <FitBounds points={points} />
         {landmark && (<>
           <Marker position={[landmark.lat, landmark.lng]} icon={landmarkPin}>
-            <Popup><div className="map-popup"><b>📍 {landmark.name}</b><small>Search centre</small></div></Popup>
+            <Popup><div><b className="text-sm">📍 {landmark.name}</b><span className="block text-xs text-slate-500">Search centre</span></div></Popup>
           </Marker>
           {radiusKm && <Circle center={[landmark.lat, landmark.lng]} radius={radiusKm * 1000}
             pathOptions={{ color: "#f59e0b", fillColor: "#f59e0b", fillOpacity: 0.07, weight: 1.5, dashArray: "6 6" }} />}
@@ -50,10 +50,10 @@ export default function MapPanel({ properties, landmark, radiusKm, height }) {
         {located.map(p => (
           <Marker key={p.id} position={[p.lat, p.lng]} icon={pricePin(p, currency)}>
             <Popup>
-              <div className="map-popup">
-                <b>{p.title}</b>
-                <small>{p.area}, {p.city}{p.distance_km != null ? ` · ${p.distance_km} km away` : ""}</small>
-                <Link to={`/property/${p.id}`}>View details →</Link>
+              <div>
+                <b className="text-sm">{p.title}</b>
+                <span className="block text-xs text-slate-500">{p.area}, {p.city}{p.distance_km != null ? ` · ${p.distance_km} km away` : ""}</span>
+                <Link to={`/property/${p.id}`} className="text-xs font-bold text-emerald-600">View details →</Link>
               </div>
             </Popup>
           </Marker>

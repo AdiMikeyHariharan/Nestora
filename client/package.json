@@ -9,11 +9,14 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@tailwindcss/vite": "^4.3.2",
     "leaflet": "^1.9.4",
+    "motion": "^12.42.2",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "react-leaflet": "^5.0.0",
-    "react-router-dom": "^7.1.0"
+    "react-router-dom": "^7.1.0",
+    "tailwindcss": "^4.3.2"
   },
   "devDependencies": {
     "@vitejs/plugin-react": "^4.3.4",

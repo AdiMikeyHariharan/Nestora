@@ -1,45 +1,23 @@
 import { useRef, useState } from "react";
 import { Link } from "react-router-dom";
+import { motion, AnimatePresence } from "motion/react";
 import { api, fmtPrice, waLink } from "../api.js";
 import { useApp } from "../store.jsx";
+import { parseQuery, allProperties as allProps } from "../lib/nlsearch.js";
 
-let propCache = null;
-async function allProps() {
-  if (!propCache) propCache = (await api.get("/properties")).properties;
-  return propCache;
+// Conversations are persisted server-side (chat_messages table) per browser session.
+function sessionId() {
+  let id = localStorage.getItem("nst_chat_session");
+  if (!id) { id = "chat-" + Math.random().toString(36).slice(2, 12); localStorage.setItem("nst_chat_session", id); }
+  return id;
 }
-
-function parseQuery(t, places) {
-  const q = {};
-  const bhk = t.match(/(\d+)\s*bhk/); if (bhk) q.beds = parseInt(bhk[1], 10);
-  if (/\brent(al|ing)?\b|to let|lease/.test(t)) q.type = "rent";
-  else if (/\bbuy(ing)?\b|purchase|sale/.test(t)) q.type = "buy";
-  if (/resale|second hand|pre-?owned/.test(t)) q.category = "resale";
-  else if (/new project|under construction|brand new/.test(t)) q.category = "new";
-  const cr = t.match(/([\d.]+)\s*(cr|crore)/);
-  const lakh = t.match(/([\d.]+)\s*(l|lakh|lac)\b/);
-  const k = t.match(/([\d.]+)\s*k\b/);
-  const raw = t.match(/(?:under|below|max|upto|up to|budget|within)\s*(?:rs\.?|₹)?\s*([\d,]{4,})/);
-  if (cr) q.budget = parseFloat(cr[1]) * 10000000;
-  else if (lakh) q.budget = parseFloat(lakh[1]) * 100000;
-  else if (k) q.budget = parseFloat(k[1]) * 1000;
-  else if (raw) q.budget = parseInt(raw[1].replace(/,/g, ""), 10);
-  if (!q.type && q.budget) q.type = q.budget >= 500000 ? "buy" : "rent";
-  // "near <landmark>" → geospatial search
-  const near = t.match(/near(?:by| to)?\s+([a-z0-9' ]+?)(?:\s+(?:under|below|for|with|upto|up to|in)\b|[.,!?]|$)/);
-  if (near) q.near = near[1].trim();
-  for (const place of places) {
-    if (t.includes(place.toLowerCase()) && place.toLowerCase() !== q.near) { q.place = place; break; }
-  }
-  const pin = t.match(/\b(\d{6})\b/); if (pin) q.pincode = pin[1];
-  return q;
-}
+const logMsg = (who, text) => api.post("/chat/log", { session: sessionId(), who, text }).catch(() => {});
 
 export default function ChatWidget() {
   const { user, currency } = useApp();
   const [open, setOpen] = useState(false);
   const [msgs, setMsgs] = useState([
-    { who: "bot", text: 'Hi 👋 I\'m the Nestora assistant. Try "2 BHK near Anandas" or "flats for rent in Bengaluru".' }
+    { who: "bot", text: 'Hi 👋 I\'m the Nestora assistant. Try "2 BHK near Adyar" or "flats for rent in Bengaluru".' }
   ]);
   const [typing, setTyping] = useState(false);
   const inputRef = useRef();
@@ -47,13 +25,13 @@ export default function ChatWidget() {
 
   const push = m => {
     setMsgs(prev => [...prev, m]);
-    setTimeout(() => { if (bodyRef.current) bodyRef.current.scrollTop = bodyRef.current.scrollHeight; }, 50);
+    if (m.text) logMsg(m.who, m.text);
+    setTimeout(() => { if (bodyRef.current) bodyRef.current.scrollTop = bodyRef.current.scrollHeight; }, 60);
   };
   const reply = (m, delay = 650) => new Promise(r => {
     setTyping(true);
     setTimeout(() => { setTyping(false); push(m); r(); }, delay);
   });
-
   const cards = list => ({ who: "bot", cards: list.slice(0, 3) });
 
   async function botReply(userText) {
@@ -83,7 +61,7 @@ export default function ChatWidget() {
       return;
     }
     if (/^(hi|hello|hey|namaste)\b/.test(t) || t.includes("help")) {
-      await reply({ who: "bot", text: 'Hi 👋 Try "2 BHK near Anandas", "flats for rent under 50k in Koramangala", "book a visit" or "post my property".' });
+      await reply({ who: "bot", text: 'Hi 👋 Try "2 BHK near Adyar", "flats for rent under 50k in Koramangala", "book a visit" or "post my property".' });
       return;
     }
 
@@ -134,7 +112,7 @@ export default function ChatWidget() {
           push({ who: "bot", text: `Nothing within 10 km of ${lm.name} yet. Widen the search on the listings page, or ask an advisor:` });
           push({ who: "bot", href: { url: waLink("Hi Nestora! I'm looking for: " + userText), label: "Send to an advisor on WhatsApp →" } });
         }
-      } catch (e) {
+      } catch {
         setTyping(false);
         push({ who: "bot", text: "The map service is busy — try again in a few seconds." });
       }
@@ -187,48 +165,84 @@ export default function ChatWidget() {
 
   return (
     <>
-      <div className="float-stack" style={{ bottom: 90 }}>
-        <button className="fab chat" onClick={() => setOpen(o => !o)} title="Chat with us">💬</button>
-      </div>
-      <div className={"chat-panel" + (open ? " open" : "")} style={{ bottom: 158 }}>
-        <div className="chat-head">
-          <span className="dot" />
-          <div><h4>Nestora Assistant</h4><small>Understands landmarks & budgets</small></div>
-          <button className="x" onClick={() => setOpen(false)}>×</button>
-        </div>
-        <div className="chat-body" ref={bodyRef}>
-          {msgs.map((m, i) => m.cards ? (
-            <div className="msg bot rich" key={i}>
-              {m.cards.map(p => (
-                <Link className="chat-card" key={p.id} to={`/property/${p.id}`} onClick={() => setOpen(false)}>
-                  <img src={p.img} onError={e => { e.currentTarget.style.display = "none"; }} />
-                  <div>
-                    <b>{fmtPrice(p.priceINR, p.type === "rent", currency)}</b>
-                    <span>{p.title}</span>
-                    <small>📍 {p.area}, {p.city}{p.distance_km != null ? ` · ${p.distance_km} km` : ""}</small>
-                  </div>
-                </Link>
+      <motion.button
+        whileHover={{ scale: 1.1 }} whileTap={{ scale: 0.95 }}
+        className="fixed bottom-[92px] right-6 z-[60] grid h-14 w-14 place-items-center rounded-full bg-gradient-to-br from-emerald-600 to-teal-500 text-2xl text-white shadow-xl shadow-emerald-600/30"
+        onClick={() => setOpen(o => !o)} title="Chat with us"
+      >💬</motion.button>
+
+      <AnimatePresence>
+        {open && (
+          <motion.div
+            initial={{ opacity: 0, y: 26, scale: 0.96 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: 20, scale: 0.97 }}
+            transition={{ type: "spring", stiffness: 360, damping: 28 }}
+            className="fixed bottom-[158px] right-6 z-[61] flex w-[350px] max-w-[calc(100vw-3rem)] flex-col overflow-hidden rounded-3xl bg-white shadow-2xl ring-1 ring-slate-200"
+          >
+            <div className="flex items-center gap-2.5 bg-gradient-to-r from-emerald-700 to-teal-600 px-4 py-3.5 text-white">
+              <span className="h-2.5 w-2.5 rounded-full bg-green-300" />
+              <div>
+                <h4 className="text-sm font-extrabold">Nestora Assistant</h4>
+                <small className="text-[11px] text-emerald-100">Understands landmarks & budgets · convo saved</small>
+              </div>
+              <button className="ml-auto text-xl text-white/80 hover:text-white" onClick={() => setOpen(false)}>×</button>
+            </div>
+
+            <div className="flex h-[320px] flex-col gap-2.5 overflow-y-auto bg-slate-50 p-3.5" ref={bodyRef}>
+              {msgs.map((m, i) => m.cards ? (
+                <div className="flex w-full flex-col gap-2" key={i}>
+                  {m.cards.map(p => (
+                    <Link
+                      key={p.id} to={`/property/${p.id}`} onClick={() => setOpen(false)}
+                      className="flex items-center gap-2.5 rounded-xl border border-slate-200 bg-white p-2 transition-colors hover:border-emerald-400"
+                    >
+                      <img src={p.img} className="h-[50px] w-16 shrink-0 rounded-lg object-cover" onError={e => { e.currentTarget.style.display = "none"; }} />
+                      <div className="min-w-0">
+                        <b className="block text-sm text-emerald-700">{fmtPrice(p.priceINR, p.type === "rent", currency)}</b>
+                        <span className="block truncate text-xs font-semibold">{p.title}</span>
+                        <small className="block truncate text-[11px] text-slate-400">📍 {p.area}, {p.city}{p.distance_km != null ? ` · ${p.distance_km} km` : ""}</small>
+                      </div>
+                    </Link>
+                  ))}
+                </div>
+              ) : (
+                <div
+                  key={i}
+                  className={`max-w-[84%] rounded-2xl px-3.5 py-2 text-sm ${m.who === "me"
+                    ? "self-end rounded-br-md bg-gradient-to-r from-emerald-600 to-teal-500 text-white"
+                    : "self-start rounded-bl-md border border-slate-200 bg-white text-slate-700"}`}
+                >
+                  {m.text}
+                  {m.link && <Link className="mt-1 block text-center text-xs font-bold text-emerald-600 hover:underline" to={m.link.to} onClick={() => setOpen(false)}>{m.link.label}</Link>}
+                  {m.href && <a className="mt-1 block text-center text-xs font-bold text-emerald-600 hover:underline" href={m.href.url} target="_blank" rel="noreferrer">{m.href.label}</a>}
+                </div>
+              ))}
+              {typing && (
+                <div className="flex gap-1 self-start rounded-2xl rounded-bl-md border border-slate-200 bg-white px-3.5 py-3">
+                  {[0, 1, 2].map(n => <span key={n} className="typing-dot h-1.5 w-1.5 rounded-full bg-slate-400" />)}
+                </div>
+              )}
+            </div>
+
+            <div className="flex flex-wrap gap-1.5 px-3.5 pb-2 pt-2">
+              {["2 BHK near Adyar", "Rent under 50k", "Book a visit"].map(qk => (
+                <button
+                  key={qk} onClick={() => sendText(qk)}
+                  className="rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-semibold text-emerald-700 hover:border-emerald-400"
+                >{qk}</button>
               ))}
             </div>
-          ) : (
-            <div key={i} className={"msg " + m.who + (m.link || m.href ? " rich" : "")}>
-              {m.text}
-              {m.link && <Link className="chat-link" to={m.link.to} onClick={() => setOpen(false)}>{m.link.label}</Link>}
-              {m.href && <a className="chat-link" href={m.href.url} target="_blank" rel="noreferrer">{m.href.label}</a>}
-            </div>
-          ))}
-          {typing && <div className="msg bot typing"><span /><span /><span /></div>}
-        </div>
-        <div className="chat-quick">
-          <button onClick={() => sendText("2 BHK near Adyar")}>2 BHK near Adyar</button>
-          <button onClick={() => sendText("Flats for rent under 50k")}>Rent under 50k</button>
-          <button onClick={() => sendText("Book a site visit")}>Book a visit</button>
-        </div>
-        <form className="chat-input" onSubmit={submit}>
-          <input ref={inputRef} placeholder="Try: 2 BHK near Anandas…" autoComplete="off" />
-          <button type="submit">➤</button>
-        </form>
-      </div>
+            <form className="flex gap-2 border-t border-slate-100 p-3" onSubmit={submit}>
+              <input
+                ref={inputRef} placeholder="Try: 2 BHK near Anandas…" autoComplete="off"
+                className="flex-1 rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-emerald-500"
+              />
+              <button type="submit" className="rounded-xl bg-gradient-to-r from-emerald-600 to-teal-500 px-3.5 font-bold text-white hover:brightness-110">➤</button>
+            </form>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </>
   );
 }

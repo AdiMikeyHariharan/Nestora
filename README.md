@@ -1,38 +1,49 @@
-# FNS Realty
+# Nestora
 
-Full-stack real estate site — Find, Negotiate, Settle. Buy/Rent, Resale/New Projects, owner & realtor listings, chat assistant, WhatsApp, email OTP verification, site-visit booking with online payment.
+Full-stack real estate platform — find your nest. Landmark-based geospatial search, live maps, chat assistant with persisted conversations, email OTP auth, site-visit booking with online payment.
+
+## Stack
+
+- **Frontend**: React 19 + Vite, Tailwind CSS v4, motion (animations), react-leaflet (OpenStreetMap), react-router — in `client/`
+- **Backend**: NestJS (TypeScript) — in `server/`
+- **Database**: PostgreSQL (**Supabase-compatible** — Supabase is hosted Postgres; point `DATABASE_URL` at your Supabase project's connection string and it just works, SSL included)
 
 ## Run
 
 ```bash
-node server.js        # needs Node 23+ (uses built-in node:sqlite)
-# open http://localhost:4173
+# 1. Postgres (local dev — skip if using Supabase)
+/opt/homebrew/opt/postgresql@16/bin/pg_ctl -D /opt/homebrew/var/postgresql@16 -o "-p 5433" start
+# db "nestora" on port 5433 is created already; tables auto-create & seed on boot
+
+# 2. Build client + server
+cd client && npm run build && cd ../server && npm run build
+
+# 3. Start (serves API + React app)
+node server/dist/main.js        # → http://localhost:4173
 ```
 
-The SQLite database (`fns.db`) is created and seeded with 9 demo listings on first run. Delete the file to reset everything.
+Dev mode with HMR: `cd client && npm run dev` (proxies /api to :4173).
 
-## Stack
+## Environment
 
-- **Backend:** `server.js` — zero-dependency Node (node:http + node:sqlite). REST API + static file serving.
-- **Frontend:** vanilla HTML/CSS/JS. `js/api.js` (API client + session), `js/app.js` (UI chrome, chatbot, checkout modal).
-- **Auth:** scrypt-hashed passwords, email OTP verification (6-digit, 10-min expiry), bearer session tokens.
-- **Payments:** invoices + mock gateway capture (UPI/Card/NetBanking UI). Bookings auto-confirm on payment.
-
-## Demo mode → production
-
-| Feature | Demo behavior | Production swap |
+| Var | Default | Notes |
 |---|---|---|
-| OTP email | Logged to server console and returned to the UI (`demo_otp`) | Implement `sendEmail()` in `server.js` with nodemailer/SES/Resend + SMTP creds; set `SMTP_HOST` env var to disable demo OTP exposure |
-| Payments | `/api/payments/pay` marks the invoice paid instantly | Create a Razorpay/Stripe order server-side, collect via their SDK, verify the webhook signature before marking paid |
-| WhatsApp / phone | Placeholder number in `js/app.js` (`FNS.whatsapp`) | Replace with the business number |
-| Listing photos | Stored as data-URLs in SQLite (fine for demo) | Move to S3/Cloudinary and store URLs |
+| `DATABASE_URL` | `postgresql://localhost:5433/nestora` | Set to your **Supabase** connection string (Project Settings → Database) to go hosted |
+| `SMTP_HOST` | unset (demo mode) | When unset, OTPs are logged + shown in the UI. Implement `sendEmail()` in `server/src/db.service.ts` with nodemailer/SES/Resend — or use Supabase Auth's email OTP |
+| `PORT` | 4173 | |
 
-## API
+## Features
 
-`POST /api/auth/signup · verify · resend · login · logout` — `GET /api/me`
-`GET/POST /api/properties` · `GET/DELETE /api/properties/:id`
-`GET/POST /api/shortlist` (POST toggles)
-`GET/POST /api/bookings` — booking creates a ₹999 site-visit-token invoice
-`GET /api/invoices` — `POST /api/payments/pay`
+- **Geospatial search**: "2 BHK near Anandas" — landmark autocomplete (OSM Nominatim + Photon fuzzy fallback), haversine radius search sorted by distance, radius slider, map pins with prices + landmark circle
+- **Chat assistant**: parses BHK/budget/buy-rent/landmarks, shows property cards inline; conversations persisted in `chat_messages` (per browser session)
+- **Auth**: one-time signup, scrypt-hashed passwords, 6-digit email OTP (10-min expiry), bearer sessions
+- **Bookings & payments**: ₹999 refundable site-visit token → invoice → mock checkout (UPI/Card/NetBanking) → booking auto-confirms. Swap the mock in `server/src/account.controller.ts` for Razorpay/Stripe (create order → webhook verify → mark paid)
+- **Listings**: post with photos/video; locality auto-geocoded so new listings appear in landmark search
+- Shortlist, multi-currency (₹/$/AED/£/€), WhatsApp/email enquiries
 
-All mutating routes require `Authorization: Bearer <token>`; posting a property requires a verified email.
+## API (all under /api)
+
+`POST auth/signup · verify · resend · login · logout` — `GET me`
+`GET properties` (`q, pincode, type, category, budget, beds, near=lat,lng, radius`) · `GET/POST/DELETE properties/:id`
+`GET/POST shortlist` · `GET/POST bookings` · `GET invoices` · `POST payments/pay`
+`GET geocode?q=` · `POST chat/log` · `GET chat/history?session=`

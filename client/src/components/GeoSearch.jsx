@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { api } from "../api.js";
 
 // Landmark autocomplete: type "Anandas" → pick a place → onSelect({name, lat, lng})
-export default function GeoSearch({ onSelect, placeholder }) {
+export default function GeoSearch({ onSelect, placeholder, light }) {
   const [text, setText] = useState("");
   const [results, setResults] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -31,20 +31,28 @@ export default function GeoSearch({ onSelect, placeholder }) {
   };
 
   return (
-    <div className="geo-wrap" ref={wrapRef}>
+    <div className="relative" ref={wrapRef}>
       <input
         value={text}
         placeholder={placeholder || "Near a landmark — e.g. Anandas, Adyar"}
         onChange={e => search(e.target.value)}
         onFocus={() => results.length && setOpen(true)}
+        className="w-full rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 text-sm outline-none focus:ring-2 focus:ring-emerald-500"
       />
-      {loading && <span style={{ position: "absolute", right: 12, top: 12 }} className="spinner-dark" />}
+      {loading && <span className="spin absolute right-3 top-3 h-4 w-4 rounded-full border-2 border-slate-200 border-t-emerald-600" />}
       {open && results.length > 0 && (
-        <div className="geo-drop">
+        <div className="absolute left-0 right-0 top-[calc(100%+6px)] z-30 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-2xl">
           {results.map((r, i) => (
-            <button key={i} type="button" onClick={() => { onSelect(r); setText(""); setOpen(false); }}>
-              <span className="pin-ic">📍</span>
-              <span>{r.name}<small>{r.full}</small></span>
+            <button
+              key={i} type="button"
+              onClick={() => { onSelect(r); setText(""); setOpen(false); }}
+              className="flex w-full items-center gap-2.5 px-3.5 py-2.5 text-left text-sm hover:bg-emerald-50"
+            >
+              <span className="text-amber-500">📍</span>
+              <span className="min-w-0">
+                <span className="block truncate font-semibold text-slate-800">{r.name}</span>
+                <span className="block truncate text-xs text-slate-400">{r.full}</span>
+              </span>
             </button>
           ))}
         </div>

@@ -1,5 +1,6 @@
 // Global app state: session, currency, shortlist, toasts
 import { createContext, useContext, useEffect, useRef, useState, useCallback } from "react";
+import { AnimatePresence, motion } from "motion/react";
 import { api } from "./api.js";
 
 const Ctx = createContext(null);
@@ -52,7 +53,18 @@ export function AppProvider({ children }) {
   return (
     <Ctx.Provider value={{ user, login, logout, currency, setCurrency, shortlist, toggleShortlist, toast }}>
       {children}
-      <div className={"toast" + (toastMsg ? " show" : "")}>{toastMsg}</div>
+      <AnimatePresence>
+        {toastMsg && (
+          <motion.div
+            initial={{ opacity: 0, y: 24, scale: 0.95 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: 12, scale: 0.97 }}
+            className="fixed bottom-7 left-1/2 z-[100] -translate-x-1/2 rounded-xl bg-slate-900/95 px-5 py-3 text-sm font-semibold text-white shadow-2xl backdrop-blur"
+          >
+            {toastMsg}
+          </motion.div>
+        )}
+      </AnimatePresence>
     </Ctx.Provider>
   );
 }

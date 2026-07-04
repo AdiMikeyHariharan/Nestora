@@ -1,6 +1,9 @@
 import { useEffect, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
+import { motion } from "motion/react";
 import { api } from "../api.js";
+import { nlToUrl } from "../lib/nlsearch.js";
+import { useApp } from "../store.jsx";
 import PropertyCard from "../components/PropertyCard.jsx";
 import MapPanel from "../components/MapPanel.jsx";
 import GeoSearch from "../components/GeoSearch.jsx";
@@ -23,18 +26,79 @@ function Counter({ target, suffix = "" }) {
     obs.observe(ref.current);
     return () => obs.disconnect();
   }, [target]);
-  return <b ref={ref}>{val.toLocaleString("en-IN")}{suffix}</b>;
+  return <b ref={ref} className="block bg-gradient-to-r from-emerald-600 to-teal-500 bg-clip-text text-4xl font-extrabold tracking-tight text-transparent">{val.toLocaleString("en-IN")}{suffix}</b>;
+}
+
+const Section = ({ children, className = "" }) => (
+  <section className={`mx-auto w-[min(1200px,94%)] ${className}`}>{children}</section>
+);
+
+const fieldCls = "w-full rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 text-sm outline-none focus:ring-2 focus:ring-emerald-500";
+
+function AISearchBar() {
+  const [text, setText] = useState("");
+  const [busy, setBusy] = useState(false);
+  const navigate = useNavigate();
+
+  const go = async (value) => {
+    const query = (value ?? text).trim();
+    if (!query || busy) return;
+    setBusy(true);
+    try { navigate(await nlToUrl(query)); } finally { setBusy(false); }
+  };
+
+  return (
+    <div className="mt-9 max-w-2xl">
+      <form
+        onSubmit={e => { e.preventDefault(); go(); }}
+        className="flex items-center gap-2 rounded-2xl border border-white/15 bg-white/10 p-2 shadow-2xl shadow-black/20 backdrop-blur-xl transition-all focus-within:border-emerald-400/60 focus-within:bg-white/15"
+      >
+        <span className="pl-3 text-lg" aria-hidden>✨</span>
+        <input
+          value={text}
+          onChange={e => setText(e.target.value)}
+          placeholder='Describe your dream home… "3 BHK near Whitefield under 2 Cr"'
+          aria-label="Describe the home you're looking for"
+          className="min-w-0 flex-1 bg-transparent py-2.5 text-[15px] text-white placeholder-slate-400 outline-none"
+        />
+        <button
+          disabled={busy}
+          className="flex shrink-0 items-center gap-2 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-400 px-5 py-2.5 text-sm font-bold text-emerald-950 shadow-lg shadow-emerald-500/30 transition-all hover:brightness-110 disabled:opacity-70"
+        >
+          {busy ? <span className="spin h-4 w-4 rounded-full border-2 border-emerald-900/30 border-t-emerald-900" /> : "Search"}
+        </button>
+      </form>
+      <div className="mt-3.5 flex flex-wrap items-center gap-2">
+        <span className="text-xs font-semibold text-slate-400">Try:</span>
+        {["2 BHK near Adyar", "Villa in Hyderabad under 3 Cr", "Rent in Koramangala under 50k"].map(s => (
+          <button
+            key={s} onClick={() => { setText(s); go(s); }}
+            className="rounded-full border border-white/15 bg-white/5 px-3.5 py-1.5 text-xs font-semibold text-slate-200 backdrop-blur transition-colors hover:border-emerald-400/60 hover:text-emerald-200"
+          >{s}</button>
+        ))}
+      </div>
+    </div>
+  );
 }
 
 export default function Home() {
+  const { shortlist } = useApp();
   const [deal, setDeal] = useState("buy");
   const [featured, setFeatured] = useState([]);
-  const [form, setForm] = useState({ q: "", pincode: "", category: "", budget: "" });
+  const [all, setAll] = useState([]);
+  const [form, setForm] = useState({ q: "", category: "", budget: "" });
   const navigate = useNavigate();
 
   useEffect(() => {
-    api.get("/properties").then(d => setFeatured(d.properties.slice(0, 6))).catch(() => {});
+    api.get("/properties").then(d => { setAll(d.properties); setFeatured(d.properties.slice(0, 6)); }).catch(() => {});
   }, []);
+
+  // Intelligent picks: homes in the same cities as your shortlist, not yet saved
+  const recommended = (() => {
+    if (!shortlist.length || !all.length) return [];
+    const savedCities = new Set(all.filter(p => shortlist.includes(p.id)).map(p => p.city));
+    return all.filter(p => savedCities.has(p.city) && !shortlist.includes(p.id)).slice(0, 3);
+  })();
 
   const runSearch = e => {
     e && e.preventDefault();
@@ -42,48 +106,63 @@ export default function Home() {
     Object.entries(form).forEach(([k, v]) => v && p.set(k, v));
     navigate("/listings?" + p);
   };
-  const onLandmark = lm => {
+  const onLandmark = lm =>
     navigate(`/listings?near=${lm.lat},${lm.lng}&radius=10&lname=${encodeURIComponent(lm.name)}&type=${deal}`);
-  };
 
   return (
     <>
-      <section className="hero">
-        <div className="orb o1" /><div className="orb o2" /><div className="orb o3" />
-        <div className="container">
-          <span className="eyebrow" style={{ color: "#a7f3d0" }}>One-time signup · Buy · Rent · Resale · New</span>
-          <h1>Every home, every landmark — <span className="grad">find your nest.</span></h1>
-          <p>Search by city, pincode, budget — or just say "near Anandas". Shortlist, book a visit and pay online.</p>
-          <div className="toggle-tabs">
-            {["buy", "rent"].map(t => (
-              <button key={t} className={deal === t ? "active" : ""} onClick={() => setDeal(t)}>
-                {t === "buy" ? "Buy" : "Rent"}
-              </button>
-            ))}
-          </div>
-        </div>
+      {/* HERO */}
+      <section className="grid-tex relative overflow-hidden bg-slate-950 pb-28 pt-16 text-white">
+        <div className="blob absolute -right-24 -top-28 h-[420px] w-[420px] rounded-full bg-teal-500/30 blur-[90px]" />
+        <div className="blob blob-2 absolute -bottom-32 left-[10%] h-[340px] w-[340px] rounded-full bg-emerald-500/25 blur-[90px]" />
+        <div className="blob blob-3 absolute left-[55%] top-[28%] h-[240px] w-[240px] rounded-full bg-amber-400/20 blur-[80px]" />
+
+        <Section className="relative z-10">
+          <motion.div initial={{ opacity: 0, y: 24 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.6, ease: "easeOut" }}>
+            <span className="inline-flex items-center gap-2 rounded-full border border-emerald-400/30 bg-emerald-400/10 px-4 py-1.5 text-xs font-bold tracking-wide text-emerald-300">
+              ✦ One-time signup · Buy · Rent · Resale · New Projects
+            </span>
+            <h1 className="mt-6 max-w-3xl text-4xl font-extrabold leading-[1.08] tracking-tight sm:text-5xl lg:text-6xl">
+              Every home, every landmark —{" "}
+              <span className="text-shimmer">find your nest.</span>
+            </h1>
+            <p className="mt-5 max-w-xl text-lg text-slate-300">
+              Just describe it — our AI understands landmarks, budgets and BHK. Shortlist, book a visit and pay online.
+            </p>
+            <AISearchBar />
+            <div className="mt-8 inline-flex rounded-2xl bg-white/10 p-1.5 backdrop-blur">
+              {["buy", "rent"].map(t => (
+                <button
+                  key={t} onClick={() => setDeal(t)}
+                  className={`rounded-xl px-7 py-2.5 text-sm font-bold transition-all ${deal === t ? "bg-white text-emerald-700 shadow-lg" : "text-white/85 hover:text-white"}`}
+                >{t === "buy" ? "Buy" : "Rent"}</button>
+              ))}
+            </div>
+          </motion.div>
+        </Section>
       </section>
 
-      <div className="container">
-        <form className="search-card" onSubmit={runSearch}>
-          <div className="search-grid" style={{ gridTemplateColumns: "1.3fr 1.3fr 1fr 1fr auto" }}>
-            <div className="field">
-              <label>City / Area</label>
-              <input value={form.q} onChange={e => setForm({ ...form, q: e.target.value })} placeholder="e.g. Bengaluru, Adyar" />
-            </div>
-            <div className="field">
-              <label>📍 Near a landmark</label>
-              <GeoSearch onSelect={onLandmark} />
-            </div>
-            <div className="field">
-              <label>Type</label>
-              <select value={form.category} onChange={e => setForm({ ...form, category: e.target.value })}>
+      {/* SEARCH CARD */}
+      <Section className="relative z-20 -mt-16">
+        <motion.form
+          initial={{ opacity: 0, y: 26 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.55, delay: 0.15 }}
+          onSubmit={runSearch}
+          className="rounded-3xl bg-white/90 p-5 shadow-2xl shadow-slate-900/10 ring-1 ring-slate-200 backdrop-blur-xl"
+        >
+          <div className="grid items-end gap-3 md:grid-cols-[1.2fr_1.2fr_0.9fr_0.9fr_auto]">
+            <label className="block text-[11px] font-bold uppercase tracking-wide text-slate-500">City / Area
+              <input className={fieldCls + " mt-1.5"} value={form.q} onChange={e => setForm({ ...form, q: e.target.value })} placeholder="e.g. Bengaluru, Adyar" />
+            </label>
+            <label className="block text-[11px] font-bold uppercase tracking-wide text-slate-500">📍 Near a landmark
+              <div className="mt-1.5"><GeoSearch onSelect={onLandmark} /></div>
+            </label>
+            <label className="block text-[11px] font-bold uppercase tracking-wide text-slate-500">Type
+              <select className={fieldCls + " mt-1.5"} value={form.category} onChange={e => setForm({ ...form, category: e.target.value })}>
                 <option value="">Any</option><option value="new">New Project</option><option value="resale">Resale</option>
               </select>
-            </div>
-            <div className="field">
-              <label>Budget (max)</label>
-              <select value={form.budget} onChange={e => setForm({ ...form, budget: e.target.value })}>
+            </label>
+            <label className="block text-[11px] font-bold uppercase tracking-wide text-slate-500">Budget (max)
+              <select className={fieldCls + " mt-1.5"} value={form.budget} onChange={e => setForm({ ...form, budget: e.target.value })}>
                 <option value="">Any</option>
                 <option value="5000000">Up to ₹50 L</option>
                 <option value="10000000">Up to ₹1 Cr</option>
@@ -91,108 +170,158 @@ export default function Home() {
                 <option value="50000000">Up to ₹5 Cr</option>
                 <option value="100000">Rent up to ₹1 L/mo</option>
               </select>
-            </div>
-            <div className="field">
-              <button className="btn btn-primary" style={{ height: 44 }} type="submit">🔍 Search</button>
-            </div>
+            </label>
+            <button className="h-[42px] rounded-xl bg-gradient-to-r from-emerald-600 to-teal-500 px-6 text-sm font-bold text-white shadow-lg shadow-emerald-600/25 hover:brightness-110">
+              🔍 Search
+            </button>
           </div>
-          <div className="chip-row">
-            <span style={{ color: "var(--muted)", fontSize: 13, fontWeight: 600, alignSelf: "center" }}>Popular:</span>
+          <div className="mt-4 flex flex-wrap items-center gap-2">
+            <span className="text-xs font-semibold text-slate-400">Popular:</span>
             {["Bengaluru", "Mumbai", "Pune", "Hyderabad", "Chennai", "Delhi"].map(c => (
-              <button type="button" className="chip" key={c} onClick={() => navigate(`/listings?type=${deal}&q=${c}`)}>{c}</button>
+              <button
+                type="button" key={c}
+                onClick={() => navigate(`/listings?type=${deal}&q=${c}`)}
+                className="rounded-full border border-slate-200 px-3.5 py-1 text-xs font-semibold text-slate-500 transition-colors hover:border-emerald-500 hover:text-emerald-700"
+              >{c}</button>
             ))}
           </div>
-        </form>
-      </div>
+        </motion.form>
+      </Section>
 
-      <section className="section" style={{ paddingBottom: 20 }}>
-        <div className="container">
-          <div className="features">
-            <div className="feature reveal in"><div className="ic">🧭</div><h3>Landmark search</h3><p>"2 BHK near Anandas" — geocoded and distance-sorted.</p></div>
-            <div className="feature reveal in"><div className="ic">🗺️</div><h3>Live map view</h3><p>Every listing pinned with prices on an interactive map.</p></div>
-            <div className="feature reveal in"><div className="ic">💬</div><h3>Smart assistant</h3><p>Chat understands landmarks, budgets and BHK.</p></div>
-            <div className="feature reveal in"><div className="ic">💳</div><h3>Book & pay online</h3><p>Reserve site visits with secure online payment.</p></div>
-          </div>
+      {/* FEATURES */}
+      <Section className="mt-14">
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          {[["🧭", "Landmark search", '"2 BHK near Anandas" — geocoded and distance-sorted.'],
+            ["🗺️", "Live map view", "Every listing pinned with prices on an interactive map."],
+            ["💬", "Smart assistant", "Chat understands landmarks, budgets and BHK — and saves your convo."],
+            ["💳", "Book & pay online", "Reserve site visits with secure online payment."]].map(([ic, h, s], i) => (
+            <motion.div
+              key={h}
+              initial={{ opacity: 0, y: 18 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }}
+              transition={{ delay: i * 0.08, duration: 0.45 }}
+              className="rounded-2xl bg-white p-6 ring-1 ring-slate-200 transition-shadow hover:shadow-xl hover:shadow-slate-900/5"
+            >
+              <div className="mb-3 grid h-11 w-11 place-items-center rounded-xl bg-emerald-50 text-xl">{ic}</div>
+              <h3 className="font-bold">{h}</h3>
+              <p className="mt-1 text-sm text-slate-500">{s}</p>
+            </motion.div>
+          ))}
         </div>
-      </section>
+      </Section>
 
-      <section className="section" style={{ paddingTop: 16, paddingBottom: 16 }}>
-        <div className="container">
-          <div className="stats">
-            <div className="stat"><Counter target={1200} suffix="+" /><span>Homes listed</span></div>
-            <div className="stat"><Counter target={850} suffix="+" /><span>Happy families</span></div>
-            <div className="stat"><Counter target={7} /><span>Cities covered</span></div>
-            <div className="stat"><Counter target={98} suffix="%" /><span>Visit satisfaction</span></div>
-          </div>
-        </div>
-      </section>
-
-      <section className="section" style={{ paddingTop: 24 }}>
-        <div className="container">
-          <div className="section-head">
-            <div>
-              <span className="eyebrow">Handpicked</span>
-              <h2>Featured properties</h2>
-              <p>Fresh listings across new projects and resale homes.</p>
+      {/* STATS */}
+      <Section className="mt-10">
+        <div className="grid gap-4 rounded-3xl bg-white p-8 ring-1 ring-slate-200 sm:grid-cols-4">
+          {[[1200, "+", "Homes listed"], [850, "+", "Happy families"], [7, "", "Cities covered"], [98, "%", "Visit satisfaction"]].map(([n, suf, label]) => (
+            <div key={label} className="text-center">
+              <Counter target={n} suffix={suf} />
+              <span className="mt-1 block text-sm font-semibold text-slate-500">{label}</span>
             </div>
-            <Link className="btn btn-ghost" to="/listings">View all →</Link>
-          </div>
-          <div className="grid">
-            {featured.map((p, i) => <PropertyCard key={p.id} p={p} delay={i * 70} />)}
-          </div>
+          ))}
         </div>
-      </section>
+      </Section>
 
-      <section className="section flow" id="flow">
-        <div className="container">
-          <span className="eyebrow" style={{ color: "#5eead4" }}>Our North Star</span>
-          <h2 style={{ fontSize: 28 }}>One autonomous journey — search to settle</h2>
-          <p style={{ color: "#94a3b8", marginTop: 6, maxWidth: 640 }}>
+      {/* FEATURED */}
+      <Section className="mt-16">
+        <div className="mb-7 flex flex-wrap items-end justify-between gap-4">
+          <div>
+            <span className="text-xs font-extrabold uppercase tracking-[0.14em] text-emerald-600">Handpicked</span>
+            <h2 className="mt-1 text-3xl font-extrabold tracking-tight">Featured properties</h2>
+            <p className="mt-1 text-slate-500">Fresh listings across new projects and resale homes.</p>
+          </div>
+          <Link to="/listings" className="rounded-xl border border-slate-200 bg-white px-5 py-2.5 text-sm font-bold text-slate-700 hover:border-emerald-400 hover:text-emerald-700">
+            View all →
+          </Link>
+        </div>
+        <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
+          {featured.map((p, i) => <PropertyCard key={p.id} p={p} delay={i * 70} />)}
+        </div>
+      </Section>
+
+      {/* RECOMMENDED (personalized from shortlist) */}
+      {recommended.length > 0 && (
+        <Section className="mt-16">
+          <div className="mb-7">
+            <span className="text-xs font-extrabold uppercase tracking-[0.14em] text-emerald-600">✨ Picked for you</span>
+            <h2 className="mt-1 text-3xl font-extrabold tracking-tight">Because of your shortlist</h2>
+            <p className="mt-1 text-slate-500">Homes in the neighbourhoods you've been saving.</p>
+          </div>
+          <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
+            {recommended.map((p, i) => <PropertyCard key={p.id} p={p} delay={i * 70} />)}
+          </div>
+        </Section>
+      )}
+
+      {/* NORTH STAR FLOW */}
+      <section id="flow" className="grid-tex mt-20 bg-slate-950 py-16 text-white">
+        <Section>
+          <span className="text-xs font-extrabold uppercase tracking-[0.14em] text-teal-300">Our North Star</span>
+          <h2 className="mt-2 text-3xl font-extrabold tracking-tight">One autonomous journey — search to settle</h2>
+          <p className="mt-2 max-w-xl text-slate-400">
             Everything happens on Nestora: discover a home, shortlist it, raise a query, book a visit, get an invoice, pay securely and stay supported.
           </p>
-          <div className="steps">
-            {[["Search", "Landmark, city, pincode, budget"], ["Shortlist", "Save the homes you love"], ["Query", "Chat, WhatsApp or email"],
+          <div className="mt-9 grid gap-3 sm:grid-cols-3 lg:grid-cols-6">
+            {[["Search", "Landmark, city, budget"], ["Shortlist", "Save homes you love"], ["Query", "Chat, WhatsApp, email"],
               ["Book visit", "Confirm an appointment"], ["Invoice & pay", "Transparent, secure"], ["Support", "Post-move assistance"]].map(([h, s], i) => (
-              <div className="step" key={h}><div className="n">{i + 1}</div><h4>{h}</h4><p>{s}</p></div>
+              <motion.div
+                key={h}
+                initial={{ opacity: 0, y: 16 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }}
+                transition={{ delay: i * 0.07 }}
+                className="rounded-2xl border border-white/10 bg-white/5 p-5 backdrop-blur"
+              >
+                <div className="mb-3 grid h-8 w-8 place-items-center rounded-lg bg-gradient-to-br from-emerald-400 to-teal-300 text-sm font-extrabold text-emerald-950">{i + 1}</div>
+                <h4 className="text-sm font-bold">{h}</h4>
+                <p className="mt-0.5 text-xs text-slate-400">{s}</p>
+              </motion.div>
             ))}
           </div>
-        </div>
+        </Section>
       </section>
 
-      <section className="section">
-        <div className="container">
-          <div className="section-head"><div><span className="eyebrow">Location</span><h2>Explore on the map</h2></div></div>
-          <MapPanel properties={featured} height={420} />
-        </div>
-      </section>
+      {/* MAP */}
+      <Section className="mt-16">
+        <span className="text-xs font-extrabold uppercase tracking-[0.14em] text-emerald-600">Location</span>
+        <h2 className="mb-6 mt-1 text-3xl font-extrabold tracking-tight">Explore on the map</h2>
+        <MapPanel properties={featured} height={430} />
+      </Section>
 
-      <section className="section" style={{ paddingTop: 0 }}>
-        <div className="container">
-          <div className="section-head"><div><span className="eyebrow">Word of mouth</span><h2>What our clients say</h2></div></div>
-          <div className="quotes">
-            {[["RK", "Rahul K.", "Bought in Whitefield, Bengaluru", "Shortlisted on Sunday, visited on Wednesday, tokened the flat by Friday. The whole thing — search to payment — happened on Nestora."],
-              ["PM", "Priya M.", "Rented in Koramangala, Bengaluru", 'The assistant actually understood "2 BHK under 45k near Koramangala" and showed real options with distances. Rented in a week.'],
-              ["AS", "Arjun S.", "Sold in Gachibowli, Hyderabad", "As an owner I posted with photos and a video in 10 minutes, and my flat showed up in landmark searches automatically."]].map(([av, name, sub, text]) => (
-              <div className="quote" key={av}>
-                <p>{text}</p>
-                <div className="who"><span className="av">{av}</span><div><b>{name}</b><small>{sub}</small></div></div>
+      {/* TESTIMONIALS */}
+      <Section className="mt-16">
+        <span className="text-xs font-extrabold uppercase tracking-[0.14em] text-emerald-600">Word of mouth</span>
+        <h2 className="mb-7 mt-1 text-3xl font-extrabold tracking-tight">What our clients say</h2>
+        <div className="grid gap-5 md:grid-cols-3">
+          {[["RK", "Rahul K.", "Bought in Whitefield, Bengaluru", "Shortlisted on Sunday, visited on Wednesday, tokened the flat by Friday. The whole thing — search to payment — happened on Nestora."],
+            ["PM", "Priya M.", "Rented in Koramangala, Bengaluru", 'The assistant actually understood "2 BHK under 45k near Koramangala" and showed real options with distances. Rented in a week.'],
+            ["AS", "Arjun S.", "Sold in Gachibowli, Hyderabad", "As an owner I posted with photos and a video in 10 minutes, and my flat showed up in landmark searches automatically."]].map(([av, name, sub, text], i) => (
+            <motion.div
+              key={av}
+              initial={{ opacity: 0, y: 18 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }}
+              transition={{ delay: i * 0.1 }}
+              className="rounded-2xl bg-white p-6 ring-1 ring-slate-200"
+            >
+              <div className="mb-2 font-serif text-5xl leading-none text-emerald-300">“</div>
+              <p className="text-[15px] text-slate-700">{text}</p>
+              <div className="mt-5 flex items-center gap-3">
+                <span className="grid h-10 w-10 place-items-center rounded-full bg-gradient-to-br from-emerald-600 to-teal-400 text-sm font-extrabold text-white">{av}</span>
+                <div><b className="block text-sm">{name}</b><small className="text-slate-400">{sub}</small></div>
               </div>
-            ))}
-          </div>
+            </motion.div>
+          ))}
         </div>
-      </section>
+      </Section>
 
-      <section className="section" style={{ paddingTop: 0 }}>
-        <div className="container">
-          <div className="panel" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 20, flexWrap: "wrap", background: "linear-gradient(120deg,#ecfdf5,#fff)" }}>
-            <div>
-              <h2 style={{ fontSize: 24 }}>Own a property? List it free.</h2>
-              <p style={{ color: "var(--muted)", marginTop: 4 }}>Owners & realtors — add photos, video and description. We geocode it so buyers find it by landmark.</p>
-            </div>
-            <Link className="btn btn-accent" to="/post">＋ Post your property</Link>
+      {/* POST CTA */}
+      <Section className="mt-16">
+        <div className="flex flex-wrap items-center justify-between gap-5 rounded-3xl bg-gradient-to-r from-emerald-50 via-white to-teal-50 p-8 ring-1 ring-emerald-100">
+          <div>
+            <h2 className="text-2xl font-extrabold tracking-tight">Own a property? List it free.</h2>
+            <p className="mt-1 text-slate-500">Owners & realtors — add photos, video and description. We geocode it so buyers find it by landmark.</p>
           </div>
+          <Link to="/post" className="rounded-xl bg-amber-500 px-6 py-3 font-bold text-white shadow-lg shadow-amber-500/30 hover:brightness-105">
+            ＋ Post your property
+          </Link>
         </div>
-      </section>
+      </Section>
     </>
   );
 }

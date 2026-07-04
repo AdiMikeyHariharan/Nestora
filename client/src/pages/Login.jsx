@@ -1,7 +1,10 @@
 import { useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
+import { motion } from "motion/react";
 import { api } from "../api.js";
 import { useApp } from "../store.jsx";
+
+const fieldCls = "w-full rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 text-sm outline-none focus:ring-2 focus:ring-emerald-500";
 
 export default function Login() {
   const { login, toast } = useApp();
@@ -80,73 +83,84 @@ export default function Login() {
   };
 
   return (
-    <div className="container auth-wrap">
-      {step === "auth" ? (
-        <div className="panel">
-          <h2 style={{ textAlign: "center", marginBottom: 6 }}>Welcome to Nestora</h2>
-          <p style={{ textAlign: "center", color: "var(--muted)", marginBottom: 20 }}>One-time signup with email verification.</p>
-          <div className="tabs">
-            <button className={mode === "login" ? "active" : ""} onClick={() => setMode("login")}>Login</button>
-            <button className={mode === "signup" ? "active" : ""} onClick={() => setMode("signup")}>Sign up</button>
+    <div className="mx-auto my-14 w-[min(430px,92%)]">
+      <motion.div
+        initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.45 }}
+        className="rounded-3xl bg-white p-7 shadow-xl shadow-slate-900/5 ring-1 ring-slate-200"
+      >
+        {step === "auth" ? (<>
+          <h2 className="text-center text-2xl font-extrabold tracking-tight">Welcome to Nestora</h2>
+          <p className="mb-6 mt-1 text-center text-sm text-slate-500">One-time signup with email verification.</p>
+          <div className="mb-5 flex rounded-xl bg-slate-100 p-1">
+            {["login", "signup"].map(m => (
+              <button
+                key={m} onClick={() => setMode(m)}
+                className={`flex-1 rounded-lg py-2 text-sm font-bold transition-all ${mode === m ? "bg-white text-emerald-700 shadow" : "text-slate-500"}`}
+              >{m === "login" ? "Login" : "Sign up"}</button>
+            ))}
           </div>
-          <form onSubmit={submitAuth}>
+          <form onSubmit={submitAuth} className="space-y-3.5">
             {mode === "signup" && (
-              <div className="form-field" style={{ marginBottom: 14 }}>
-                <label>Full name</label>
-                <input required value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} placeholder="Your name" />
-              </div>
+              <label className="block text-xs font-bold text-slate-600">Full name
+                <input className={fieldCls + " mt-1.5"} required value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} placeholder="Your name" />
+              </label>
             )}
-            <div className="form-field" style={{ marginBottom: 14 }}>
-              <label>Email</label>
-              <input type="email" required value={form.email} onChange={e => setForm({ ...form, email: e.target.value })} placeholder="you@example.com" />
-            </div>
-            <div className="form-field" style={{ marginBottom: 14 }}>
-              <label>Password</label>
-              <input type="password" required minLength={6} value={form.password} onChange={e => setForm({ ...form, password: e.target.value })} placeholder="••••••••" />
-            </div>
+            <label className="block text-xs font-bold text-slate-600">Email
+              <input className={fieldCls + " mt-1.5"} type="email" required value={form.email} onChange={e => setForm({ ...form, email: e.target.value })} placeholder="you@example.com" />
+            </label>
+            <label className="block text-xs font-bold text-slate-600">Password
+              <input className={fieldCls + " mt-1.5"} type="password" required minLength={6} value={form.password} onChange={e => setForm({ ...form, password: e.target.value })} placeholder="••••••••" />
+            </label>
             {mode === "signup" && (
-              <div className="form-field" style={{ marginBottom: 14 }}>
-                <label>I am a</label>
-                <select value={form.role} onChange={e => setForm({ ...form, role: e.target.value })}>
+              <label className="block text-xs font-bold text-slate-600">I am a
+                <select className={fieldCls + " mt-1.5"} value={form.role} onChange={e => setForm({ ...form, role: e.target.value })}>
                   <option value="buyer">Buyer / Tenant</option>
                   <option value="owner">Owner</option>
                   <option value="realtor">Realtor / Mediator</option>
                 </select>
-              </div>
+              </label>
             )}
-            <button className="btn btn-primary btn-block" style={{ height: 46 }} disabled={busy}>
-              {busy ? <><span className="spinner" /> Please wait…</> : mode === "login" ? "Login" : "Create account"}
+            <button
+              disabled={busy}
+              className="flex w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-500 py-3 font-bold text-white shadow-lg shadow-emerald-600/25 hover:brightness-110 disabled:opacity-70"
+            >
+              {busy ? (<><span className="spin h-4 w-4 rounded-full border-2 border-white/40 border-t-white" /> Please wait…</>) : mode === "login" ? "Login" : "Create account"}
             </button>
           </form>
-          <p style={{ color: "var(--muted)", fontSize: 12.5, marginTop: 14, textAlign: "center" }}>
-            Demo build — OTP emails are simulated until SMTP is configured.
-          </p>
-        </div>
-      ) : (
-        <div className="panel">
-          <h2 style={{ textAlign: "center", marginBottom: 6 }}>Verify your email</h2>
-          <p style={{ textAlign: "center", color: "var(--muted)" }}>
+          <p className="mt-4 text-center text-[11px] text-slate-400">Demo build — OTP emails are simulated until SMTP is configured.</p>
+        </>) : (<>
+          <h2 className="text-center text-2xl font-extrabold tracking-tight">Verify your email</h2>
+          <p className="mt-1 text-center text-sm text-slate-500">
             We emailed a 6-digit code to {pendingEmail}. It expires in 10 minutes.
           </p>
-          <div className="otp-row" onPaste={onPaste}>
+          <div className="my-6 flex justify-center gap-2" onPaste={onPaste}>
             {otp.map((d, i) => (
-              <input key={i} maxLength={1} inputMode="numeric" value={d}
+              <input
+                key={i} maxLength={1} inputMode="numeric" value={d}
                 ref={el => boxRefs.current[i] = el}
                 onChange={e => setDigit(i, e.target.value)}
-                onKeyDown={e => onKey(i, e)} />
+                onKeyDown={e => onKey(i, e)}
+                className="h-14 w-11 rounded-xl border-2 border-slate-200 text-center text-xl font-extrabold outline-none focus:border-emerald-500 focus:ring-4 focus:ring-emerald-500/15"
+              />
             ))}
           </div>
-          <button className="btn btn-primary btn-block" style={{ height: 46 }} onClick={verify} disabled={busy}>
-            {busy ? <><span className="spinner" /> Verifying…</> : "Verify & continue"}
+          <button
+            onClick={verify} disabled={busy}
+            className="flex w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-500 py-3 font-bold text-white shadow-lg shadow-emerald-600/25 hover:brightness-110 disabled:opacity-70"
+          >
+            {busy ? (<><span className="spin h-4 w-4 rounded-full border-2 border-white/40 border-t-white" /> Verifying…</>) : "Verify & continue"}
           </button>
-          <p style={{ textAlign: "center", marginTop: 14, fontSize: 14, color: "var(--muted)" }}>
-            Didn't get it? <a href="#" onClick={e => { e.preventDefault(); resend(); }} style={{ color: "var(--brand)", fontWeight: 700 }}>Resend code</a>
+          <p className="mt-4 text-center text-sm text-slate-500">
+            Didn't get it?{" "}
+            <button onClick={resend} className="font-bold text-emerald-700 hover:underline">Resend code</button>
           </p>
           {demoOtp && (
-            <div className="demo-otp">🧪 <b>Demo mode</b> (no SMTP configured): your OTP is <b>{demoOtp}</b></div>
+            <div className="mt-4 rounded-xl border border-dashed border-amber-400 bg-amber-50 px-4 py-2.5 text-center text-sm text-amber-800">
+              🧪 <b>Demo mode</b> (no SMTP configured): your OTP is <b>{demoOtp}</b>
+            </div>
           )}
-        </div>
-      )}
+        </>)}
+      </motion.div>
     </div>
   );
 }

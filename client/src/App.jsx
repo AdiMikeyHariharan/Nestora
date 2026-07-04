@@ -1,5 +1,5 @@
 import { Routes, Route, Link, NavLink, useLocation } from "react-router-dom";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useApp } from "./store.jsx";
 import { NESTORA, waLink } from "./api.js";
 import ChatWidget from "./components/ChatWidget.jsx";
@@ -10,31 +10,66 @@ import Post from "./pages/Post.jsx";
 import Login from "./pages/Login.jsx";
 import Account from "./pages/Account.jsx";
 
+export function Logo({ dark }) {
+  return (
+    <Link to="/" className="group flex items-center gap-2.5">
+      <span className="grid h-9 w-9 place-items-center rounded-xl bg-gradient-to-br from-emerald-600 to-teal-400 text-lg font-extrabold text-white shadow-lg shadow-emerald-600/30 transition-transform group-hover:rotate-6">
+        N
+      </span>
+      <span className={`text-xl font-extrabold tracking-tight ${dark ? "text-white" : "text-slate-900"}`}>
+        Nestora
+        <span className={`ml-0.5 hidden text-[10px] font-bold tracking-[0.18em] sm:inline ${dark ? "text-emerald-300" : "text-emerald-600"}`}> · FIND YOUR NEST</span>
+      </span>
+    </Link>
+  );
+}
+
 function Header() {
   const { user, logout, currency, setCurrency } = useApp();
+  const [scrolled, setScrolled] = useState(false);
+  useEffect(() => {
+    const fn = () => setScrolled(window.scrollY > 8);
+    window.addEventListener("scroll", fn, { passive: true });
+    return () => window.removeEventListener("scroll", fn);
+  }, []);
+
+  const nav = ({ isActive }) =>
+    `rounded-full px-4 py-1.5 text-sm font-semibold transition-colors ${
+      isActive ? "bg-emerald-600/10 text-emerald-700" : "text-slate-600 hover:bg-slate-900/5 hover:text-slate-900"}`;
+
   return (
-    <header className="site-header">
-      <div className="container nav">
-        <Link className="brand" to="/">
-          <span className="logo">N</span>
-          <span>Nestora<small>FIND YOUR NEST</small></span>
-        </Link>
-        <nav className="nav-links">
-          <NavLink to="/listings?type=buy">Buy</NavLink>
-          <NavLink to="/listings?type=rent">Rent</NavLink>
-          <NavLink to="/post">Post Property</NavLink>
-          <a href="/#flow">How it works</a>
+    <header className={`sticky top-0 z-50 transition-all ${scrolled ? "bg-white/80 shadow-lg shadow-slate-900/5 backdrop-blur-xl" : "bg-white/60 backdrop-blur-md"}`}>
+      <div className="mx-auto flex h-16 w-[min(1200px,94%)] items-center gap-5">
+        <Logo />
+        <nav className="ml-3 hidden items-center gap-1 md:flex">
+          <NavLink to="/listings?type=buy" className={nav}>Buy</NavLink>
+          <NavLink to="/listings?type=rent" className={nav}>Rent</NavLink>
+          <NavLink to="/post" className={nav}>Post Property</NavLink>
+          <a href="/#flow" className="rounded-full px-4 py-1.5 text-sm font-semibold text-slate-600 hover:bg-slate-900/5 hover:text-slate-900">How it works</a>
         </nav>
-        <div className="nav-right">
-          <select className="currency" value={currency} onChange={e => setCurrency(e.target.value)} title="Currency">
+        <div className="ml-auto flex items-center gap-2.5">
+          <select
+            value={currency}
+            onChange={e => setCurrency(e.target.value)}
+            className="cursor-pointer rounded-xl border border-slate-200 bg-white px-2.5 py-1.5 text-sm font-bold text-slate-700 outline-none focus:ring-2 focus:ring-emerald-500"
+            title="Currency"
+          >
             {Object.keys(NESTORA.rates).map(c => <option key={c} value={c}>{c}</option>)}
           </select>
           {user ? (<>
-            <Link className="btn btn-ghost btn-sm" to="/account">Hi, {user.name.split(" ")[0]}</Link>
-            <button className="btn btn-primary btn-sm" onClick={logout}>Logout</button>
+            <Link to="/account" className="rounded-xl border border-slate-200 bg-white px-4 py-1.5 text-sm font-bold text-emerald-700 hover:border-emerald-400">
+              Hi, {user.name.split(" ")[0]}
+            </Link>
+            <button onClick={logout} className="rounded-xl bg-slate-900 px-4 py-1.5 text-sm font-bold text-white hover:bg-slate-700">
+              Logout
+            </button>
           </>) : (<>
-            <Link className="btn btn-ghost btn-sm" to="/login">Login</Link>
-            <Link className="btn btn-primary btn-sm" to="/post">Post Property</Link>
+            <Link to="/login" className="rounded-xl border border-slate-200 bg-white px-4 py-1.5 text-sm font-bold text-slate-700 hover:border-emerald-400 hover:text-emerald-700">
+              Login
+            </Link>
+            <Link to="/post" className="rounded-xl bg-gradient-to-r from-emerald-600 to-teal-500 px-4 py-1.5 text-sm font-bold text-white shadow-lg shadow-emerald-600/25 hover:brightness-110">
+              Post Property
+            </Link>
           </>)}
         </div>
       </div>
@@ -44,31 +79,37 @@ function Header() {
 
 function Footer() {
   return (
-    <footer className="site-footer">
-      <div className="container">
-        <div className="footer-grid">
+    <footer className="mt-16 bg-slate-950 pb-8 pt-14 text-slate-300">
+      <div className="mx-auto w-[min(1200px,94%)]">
+        <div className="grid gap-8 md:grid-cols-[2fr_1fr_1fr_1fr]">
           <div>
-            <div className="brand" style={{ color: "#fff" }}><span className="logo">N</span><span style={{ color: "#fff" }}>Nestora</span></div>
-            <p style={{ color: "#94a3b8", marginTop: 12, maxWidth: 320 }}>
+            <Logo dark />
+            <p className="mt-4 max-w-xs text-sm leading-relaxed text-slate-400">
               Find your nest — buy, rent, resale or new projects. Search by landmark, book visits and pay online, end to end.
             </p>
           </div>
-          <div><h4>Explore</h4>
-            <Link to="/listings?type=buy">Buy</Link><Link to="/listings?type=rent">Rent</Link>
-            <Link to="/listings?category=new">New Projects</Link><Link to="/listings?category=resale">Resale</Link>
-          </div>
-          <div><h4>Company</h4>
-            <Link to="/post">Post Property</Link><Link to="/login">Client Login</Link>
-            <a href="/#flow">How it works</a><a href={`mailto:${NESTORA.email}`}>Contact</a>
-          </div>
-          <div><h4>Reach us</h4>
-            <a href={`mailto:${NESTORA.email}`}>✉ {NESTORA.email}</a>
-            <a href={waLink("Hi Nestora!")} target="_blank" rel="noreferrer">🟢 WhatsApp</a>
-            <a href="tel:+919000000000">📞 +91 90000 00000</a>
+          {[
+            ["Explore", [["Buy", "/listings?type=buy"], ["Rent", "/listings?type=rent"], ["New Projects", "/listings?category=new"], ["Resale", "/listings?category=resale"]]],
+            ["Company", [["Post Property", "/post"], ["Client Login", "/login"], ["How it works", "/#flow"], ["Contact", `mailto:${NESTORA.email}`]]]
+          ].map(([h, links]) => (
+            <div key={h}>
+              <h4 className="mb-3 text-sm font-bold text-white">{h}</h4>
+              {links.map(([label, to]) => to.startsWith("/") && !to.includes("#") ? (
+                <Link key={label} to={to} className="block py-1 text-sm text-slate-400 hover:text-white">{label}</Link>
+              ) : (
+                <a key={label} href={to} className="block py-1 text-sm text-slate-400 hover:text-white">{label}</a>
+              ))}
+            </div>
+          ))}
+          <div>
+            <h4 className="mb-3 text-sm font-bold text-white">Reach us</h4>
+            <a href={`mailto:${NESTORA.email}`} className="block py-1 text-sm text-slate-400 hover:text-white">✉ {NESTORA.email}</a>
+            <a href={waLink("Hi Nestora!")} target="_blank" rel="noreferrer" className="block py-1 text-sm text-slate-400 hover:text-white">🟢 WhatsApp</a>
+            <a href="tel:+919000000000" className="block py-1 text-sm text-slate-400 hover:text-white">📞 +91 90000 00000</a>
           </div>
         </div>
-        <div className="footer-bottom">
-          <span>© {new Date().getFullYear()} Nestora. Demo build.</span>
+        <div className="mt-9 flex flex-wrap justify-between gap-2 border-t border-slate-800 pt-5 text-xs text-slate-500">
+          <span>© {new Date().getFullYear()} Nestora. Demo build — React · NestJS · Postgres (Supabase-ready).</span>
           <span>Privacy · Terms · Sitemap</span>
         </div>
       </div>
@@ -92,9 +133,11 @@ export default function App() {
         <Route path="*" element={<Home />} />
       </Routes>
       <Footer />
-      <div className="float-stack">
-        <a className="fab wa" href={waLink("Hi Nestora! I'd like help finding a property.")} target="_blank" rel="noreferrer" title="WhatsApp us">🟢</a>
-      </div>
+      <a
+        className="fixed bottom-6 right-6 z-[60] grid h-14 w-14 place-items-center rounded-full bg-[#25d366] text-2xl shadow-xl shadow-black/25 transition-transform hover:scale-110"
+        href={waLink("Hi Nestora! I'd like help finding a property.")}
+        target="_blank" rel="noreferrer" title="WhatsApp us"
+      >🟢</a>
       <ChatWidget />
     </>
   );
