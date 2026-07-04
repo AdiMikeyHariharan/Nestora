@@ -67,6 +67,7 @@ let DbService = class DbService {
         posted_by TEXT, role TEXT, lat DOUBLE PRECISION, lng DOUBLE PRECISION,
         created_at TIMESTAMPTZ DEFAULT now()
       );
+      ALTER TABLE properties ADD COLUMN IF NOT EXISTS furnishing TEXT DEFAULT 'unfurnished';
       CREATE TABLE IF NOT EXISTS shortlist (email TEXT, property_id TEXT, PRIMARY KEY (email, property_id));
       CREATE TABLE IF NOT EXISTS bookings (
         id TEXT PRIMARY KEY, email TEXT, property_id TEXT, date_pref TEXT,
@@ -102,9 +103,17 @@ let DbService = class DbService {
             ["nst-111", "3 BHK Garden Apartment", "rent", "new", "Chennai", "Besant Nagar", "600090", 55000, 3, 3, 1500, "Airy 3 BHK near Elliot's Beach with gym, play area and two balconies. Ideal family neighbourhood.", 13.0002, 80.2668],
             ["nst-112", "Compact 1 BHK in Indiranagar", "rent", "resale", "Bengaluru", "Indiranagar", "560038", 30000, 1, 1, 700, "Fully furnished 1 BHK just off 100 Feet Road — cafes, breweries and the metro at your doorstep.", 12.9719, 77.6412]
         ];
+        const photos = {
+            "nst-101": "1600596542815-ffad4c1539a9", "nst-102": "1512917774080-9991f1c4c750",
+            "nst-103": "1522708323590-d24dbb6b0267", "nst-104": "1580587771525-78b9dba3b914",
+            "nst-105": "1493809842364-78817add7ffb", "nst-106": "1600607687939-ce8a6c25118c",
+            "nst-107": "1560448204-e02f11c3d0e2", "nst-108": "1600585154340-be6161a56a0c",
+            "nst-109": "1600047509807-ba8f99d2cdde", "nst-110": "1600566753190-17f0baa2a6c3",
+            "nst-111": "1600210492486-724fe5c67fb0", "nst-112": "1570129477492-45c003edd2be"
+        };
         for (const s of seeds) {
             await this.q(`INSERT INTO properties (id,title,type,category,city,area,pincode,price_inr,beds,baths,sqft,description,lat,lng,img,posted_by,role)
-        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,'seed','seed')`, [...s, `https://picsum.photos/seed/${String(s[0]).replace("-", "")}/800/500`]);
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,'seed','seed')`, [...s, `https://images.unsplash.com/photo-${photos[String(s[0])]}?auto=format&fit=crop&w=800&q=70`]);
         }
         console.log("Seeded", seeds.length, "properties");
     }
