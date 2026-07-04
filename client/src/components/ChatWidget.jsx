@@ -4,6 +4,7 @@ import { motion, AnimatePresence } from "motion/react";
 import { api, fmtPrice, waLink } from "../api.js";
 import { useApp } from "../store.jsx";
 import { parseQuery, allProperties as allProps } from "../lib/nlsearch.js";
+import { ChatIcon } from "./icons.jsx";
 
 // Conversations are persisted server-side (chat_messages table) per browser session.
 function sessionId() {
@@ -167,9 +168,9 @@ export default function ChatWidget() {
     <>
       <motion.button
         whileHover={{ scale: 1.1 }} whileTap={{ scale: 0.95 }}
-        className="fixed bottom-[92px] right-6 z-[60] grid h-14 w-14 place-items-center rounded-full bg-gradient-to-br from-emerald-600 to-teal-500 text-2xl text-white shadow-xl shadow-emerald-600/30"
-        onClick={() => setOpen(o => !o)} title="Chat with us"
-      >💬</motion.button>
+        className="fixed bottom-[92px] right-6 z-[60] grid h-14 w-14 place-items-center rounded-full bg-gradient-to-br from-emerald-600 to-teal-500 text-white shadow-xl shadow-emerald-600/30"
+        onClick={() => setOpen(o => !o)} title="Chat with us" aria-label="Open chat assistant"
+      ><ChatIcon size={24} /></motion.button>
 
       <AnimatePresence>
         {open && (

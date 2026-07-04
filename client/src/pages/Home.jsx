@@ -111,20 +111,24 @@ export default function Home() {
 
   return (
     <>
-      {/* HERO */}
-      <section className="grid-tex relative overflow-hidden bg-slate-950 pb-28 pt-16 text-white">
-        <div className="blob absolute -right-24 -top-28 h-[420px] w-[420px] rounded-full bg-teal-500/30 blur-[90px]" />
-        <div className="blob blob-2 absolute -bottom-32 left-[10%] h-[340px] w-[340px] rounded-full bg-emerald-500/25 blur-[90px]" />
-        <div className="blob blob-3 absolute left-[55%] top-[28%] h-[240px] w-[240px] rounded-full bg-amber-400/20 blur-[80px]" />
+      {/* HERO — full-bleed cinematic photography (2026 luxury RE pattern) */}
+      <section className="grain relative overflow-hidden bg-slate-950 pb-28 pt-16 text-white">
+        <img
+          src="https://images.unsplash.com/photo-1512917774080-9991f1c4c750?auto=format&fit=crop&w=2000&q=75"
+          alt="" aria-hidden
+          className="absolute inset-0 h-full w-full scale-105 object-cover"
+        />
+        <div className="absolute inset-0 bg-gradient-to-r from-slate-950/95 via-slate-950/80 to-slate-950/40" />
+        <div className="absolute inset-x-0 bottom-0 h-40 bg-gradient-to-t from-slate-950/90 to-transparent" />
 
         <Section className="relative z-10">
           <motion.div initial={{ opacity: 0, y: 24 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.6, ease: "easeOut" }}>
             <span className="inline-flex items-center gap-2 rounded-full border border-emerald-400/30 bg-emerald-400/10 px-4 py-1.5 text-xs font-bold tracking-wide text-emerald-300">
               ✦ One-time signup · Buy · Rent · Resale · New Projects
             </span>
-            <h1 className="mt-6 max-w-3xl text-4xl font-extrabold leading-[1.08] tracking-tight sm:text-5xl lg:text-6xl">
+            <h1 className="mt-6 max-w-3xl text-4xl font-extrabold leading-[1.06] tracking-tight sm:text-6xl lg:text-7xl">
               Every home, every landmark —{" "}
-              <span className="text-shimmer">find your nest.</span>
+              <span className="serif-accent text-shimmer font-semibold">find your nest.</span>
             </h1>
             <p className="mt-5 max-w-xl text-lg text-slate-300">
               Just describe it — our AI understands landmarks, budgets and BHK. Shortlist, book a visit and pay online.
@@ -188,22 +192,45 @@ export default function Home() {
         </motion.form>
       </Section>
 
-      {/* FEATURES */}
+      {/* CITY MARQUEE */}
+      <div className="mt-14 overflow-hidden border-y border-slate-200 bg-white py-4" aria-hidden>
+        <div className="marquee-track flex w-max items-center gap-10">
+          {[...Array(2)].flatMap((_, r) =>
+            ["BENGALURU", "MUMBAI", "CHENNAI", "HYDERABAD", "PUNE", "DELHI", "AHMEDABAD"].map(c => (
+              <span key={r + c} className="flex items-center gap-10 text-sm font-extrabold tracking-[0.3em] text-slate-300">
+                {c} <i className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
+              </span>
+            )))}
+        </div>
+      </div>
+
+      {/* FEATURES — bento grid */}
       <Section className="mt-14">
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-          {[["🧭", "Landmark search", '"2 BHK near Anandas" — geocoded and distance-sorted.'],
-            ["🗺️", "Live map view", "Every listing pinned with prices on an interactive map."],
-            ["💬", "Smart assistant", "Chat understands landmarks, budgets and BHK — and saves your convo."],
-            ["💳", "Book & pay online", "Reserve site visits with secure online payment."]].map(([ic, h, s], i) => (
+        <div className="grid gap-4 lg:grid-cols-3 lg:grid-rows-2">
+          <motion.div
+            initial={{ opacity: 0, y: 18 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }}
+            className="grain relative overflow-hidden rounded-[2rem] bg-slate-950 p-8 text-white lg:row-span-2"
+          >
+            <div className="blob absolute -bottom-20 -right-20 h-60 w-60 rounded-full bg-emerald-500/30 blur-[70px]" />
+            <span className="text-xs font-extrabold uppercase tracking-[0.2em] text-emerald-300">AI-first</span>
+            <h3 className="mt-3 text-2xl font-extrabold leading-snug">Speak, don't filter.<br /><span className="serif-accent font-semibold text-emerald-300">"2 BHK near Anandas"</span></h3>
+            <p className="mt-3 text-sm leading-relaxed text-slate-400">Our search understands landmarks, budgets and BHK in plain language — geocoded and sorted by distance. The assistant remembers your conversation too.</p>
+            <div className="mt-6 rounded-2xl border border-white/10 bg-white/5 p-4 text-sm text-slate-300 backdrop-blur">
+              ✨ "villa in Hyderabad under 3 cr" → <b className="text-emerald-300">1 match, 0.4 km from Gachibowli</b>
+            </div>
+          </motion.div>
+          {[["Live map view", "Every listing pinned with prices, landmark circles and radius control on an interactive map."],
+            ["Book & pay online", "Reserve site visits with a refundable ₹999 token — UPI, card or netbanking, invoice included."],
+            ["Mortgage clarity", "Per-home EMI calculator with down-payment, rate and tenure sliders — know your monthly before you visit."],
+            ["Owner-friendly listing", "Post with photos and video; we geocode your locality so buyers find you by landmark."]].map(([h, s], i) => (
             <motion.div
               key={h}
               initial={{ opacity: 0, y: 18 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }}
-              transition={{ delay: i * 0.08, duration: 0.45 }}
-              className="rounded-2xl bg-white p-6 ring-1 ring-slate-200 transition-shadow hover:shadow-xl hover:shadow-slate-900/5"
+              transition={{ delay: i * 0.07, duration: 0.45 }}
+              className="rounded-[2rem] bg-white p-7 ring-1 ring-slate-200 transition-all hover:-translate-y-1 hover:shadow-xl hover:shadow-slate-900/5"
             >
-              <div className="mb-3 grid h-11 w-11 place-items-center rounded-xl bg-emerald-50 text-xl">{ic}</div>
-              <h3 className="font-bold">{h}</h3>
-              <p className="mt-1 text-sm text-slate-500">{s}</p>
+              <h3 className="text-lg font-extrabold tracking-tight">{h}</h3>
+              <p className="mt-2 text-sm leading-relaxed text-slate-500">{s}</p>
             </motion.div>
           ))}
         </div>
@@ -237,6 +264,22 @@ export default function Home() {
           {featured.map((p, i) => <PropertyCard key={p.id} p={p} delay={i * 70} />)}
         </div>
       </Section>
+
+      {/* RECENTLY VIEWED */}
+      {(() => {
+        let ids = [];
+        try { ids = JSON.parse(localStorage.getItem("nst_recent") || "[]"); } catch { /* ignore */ }
+        const recent = ids.map(id => all.find(p => p.id === id)).filter(Boolean).slice(0, 3);
+        return recent.length ? (
+          <Section className="mt-16">
+            <span className="text-xs font-extrabold uppercase tracking-[0.14em] text-emerald-600">Continue exploring</span>
+            <h2 className="mb-6 mt-1 text-3xl font-extrabold tracking-tight">Recently viewed</h2>
+            <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
+              {recent.map((p, i) => <PropertyCard key={p.id} p={p} delay={i * 70} />)}
+            </div>
+          </Section>
+        ) : null;
+      })()}
 
       {/* RECOMMENDED (personalized from shortlist) */}
       {recommended.length > 0 && (

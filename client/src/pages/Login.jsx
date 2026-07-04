@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { motion } from "motion/react";
 import { api } from "../api.js";
@@ -20,6 +20,27 @@ export default function Login() {
   const [form, setForm] = useState({ name: "", email: "", password: "", role: "buyer" });
   const [otp, setOtp] = useState(Array(6).fill(""));
   const boxRefs = useRef([]);
+
+  // Handle Google SSO redirect back (?sso=<token>&u=<base64 user>)
+  useEffect(() => {
+    const ssoErr = params.get("sso_error");
+    if (ssoErr) { toast(ssoErr); return; }
+    const token = params.get("sso");
+    if (token) {
+      try {
+        const user = JSON.parse(atob(params.get("u").replace(/-/g, "+").replace(/_/g, "/")));
+        login(token, user);
+        toast("Signed in with Google ✔");
+        navigate(next);
+      } catch { toast("Sign-in failed — try again"); }
+    }
+  }, []); // eslint-disable-line
+
+  const googleSSO = async () => {
+    const { google } = await api.get("/auth/sso/status").catch(() => ({ google: false }));
+    if (!google) { toast("Google SSO needs GOOGLE_CLIENT_ID — see README"); return; }
+    window.location.href = "/api/auth/google";
+  };
 
   const showOtpStep = resp => {
     setPendingEmail(resp.email);
@@ -127,6 +148,21 @@ export default function Login() {
               {busy ? (<><span className="spin h-4 w-4 rounded-full border-2 border-white/40 border-t-white" /> Please wait…</>) : mode === "login" ? "Login" : "Create account"}
             </button>
           </form>
+          <div className="my-5 flex items-center gap-3 text-[11px] font-bold uppercase tracking-wide text-slate-300">
+            <span className="h-px flex-1 bg-slate-200" />or<span className="h-px flex-1 bg-slate-200" />
+          </div>
+          <button
+            type="button" onClick={googleSSO}
+            className="flex w-full items-center justify-center gap-2.5 rounded-xl border border-slate-200 py-3 text-sm font-bold text-slate-700 transition-colors hover:border-slate-300 hover:bg-slate-50"
+          >
+            <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden>
+              <path fill="#4285F4" d="M23.5 12.3c0-.9-.1-1.5-.3-2.2H12v4.1h6.5c-.1 1.1-.8 2.7-2.4 3.8l3.7 2.9c2.3-2.1 3.7-5.1 3.7-8.6z" />
+              <path fill="#34A853" d="M12 24c3.2 0 6-1.1 7.9-2.9l-3.7-2.9c-1 .7-2.4 1.2-4.2 1.2-3.2 0-6-2.2-7-5.1L1.2 17.2C3.2 21.2 7.3 24 12 24z" />
+              <path fill="#FBBC05" d="M5 14.3c-.2-.7-.4-1.5-.4-2.3s.2-1.6.4-2.3L1.2 6.8C.4 8.4 0 10.1 0 12s.4 3.6 1.2 5.2L5 14.3z" />
+              <path fill="#EA4335" d="M12 4.6c1.8 0 3 .8 3.7 1.4l3.3-3.2C17 1 14.2 0 12 0 7.3 0 3.2 2.8 1.2 6.8L5 9.7c1-2.9 3.8-5.1 7-5.1z" />
+            </svg>
+            Continue with Google
+          </button>
           <p className="mt-4 text-center text-[11px] text-slate-400">Demo build — OTP emails are simulated until SMTP is configured.</p>
         </>) : (<>
           <h2 className="text-center text-2xl font-extrabold tracking-tight">Verify your email</h2>

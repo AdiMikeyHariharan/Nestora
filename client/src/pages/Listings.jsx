@@ -15,7 +15,9 @@ export default function Listings() {
   const [sort, setSort] = useState("");
   const [form, setForm] = useState({
     q: params.get("q") || "", pincode: params.get("pincode") || "",
-    type: params.get("type") || "", category: params.get("category") || "", budget: params.get("budget") || ""
+    type: params.get("type") || "", category: params.get("category") || "",
+    minBudget: params.get("minBudget") || "", budget: params.get("budget") || "",
+    furnishing: params.get("furnishing") || ""
   });
 
   const near = params.get("near");
@@ -80,7 +82,7 @@ export default function Listings() {
 
       <div className="mx-auto mt-8 w-[min(1200px,94%)] pb-6">
         <form onSubmit={applyFilters} className="rounded-3xl bg-white p-5 shadow-xl shadow-slate-900/5 ring-1 ring-slate-200">
-          <div className="grid items-end gap-3 md:grid-cols-[1.1fr_1.1fr_0.7fr_0.8fr_0.8fr_auto]">
+          <div className="grid items-end gap-3 md:grid-cols-3 xl:grid-cols-[1fr_1fr_0.7fr_0.7fr_1.1fr_0.8fr_auto]">
             <label className={lbl}>City / Area
               <input className={fieldCls + " mt-1.5"} value={form.q} onChange={e => setForm({ ...form, q: e.target.value })} placeholder="City or area" />
             </label>
@@ -97,12 +99,42 @@ export default function Listings() {
                 <option value="">Any</option><option value="new">New Project</option><option value="resale">Resale</option>
               </select>
             </label>
-            <label className={lbl}>Budget (max ₹)
-              <input className={fieldCls + " mt-1.5"} value={form.budget} onChange={e => setForm({ ...form, budget: e.target.value })} placeholder="e.g. 10000000" inputMode="numeric" />
+            <label className={lbl}>Budget (₹ min – max)
+              <div className="mt-1.5 flex gap-1.5">
+                <input className={fieldCls} value={form.minBudget} onChange={e => setForm({ ...form, minBudget: e.target.value })} placeholder="Min" inputMode="numeric" aria-label="Minimum budget" />
+                <input className={fieldCls} value={form.budget} onChange={e => setForm({ ...form, budget: e.target.value })} placeholder="Max" inputMode="numeric" aria-label="Maximum budget" />
+              </div>
+            </label>
+            <label className={lbl}>Furnishing
+              <select className={fieldCls + " mt-1.5"} value={form.furnishing} onChange={e => setForm({ ...form, furnishing: e.target.value })}>
+                <option value="">Any</option><option value="furnished">Furnished</option>
+                <option value="semi">Semi-furnished</option><option value="unfurnished">Unfurnished</option>
+              </select>
             </label>
             <button className="h-[42px] rounded-xl bg-gradient-to-r from-emerald-600 to-teal-500 px-6 text-sm font-bold text-white shadow-lg shadow-emerald-600/25 hover:brightness-110">
               Filter
             </button>
+          </div>
+
+          {/* BHK quick filters (99acres-style facet chips) */}
+          <div className="mt-4 flex flex-wrap items-center gap-2">
+            <span className="text-xs font-bold uppercase tracking-wide text-slate-400">Bedrooms:</span>
+            {["", "1", "2", "3", "4"].map(b => {
+              const active = (params.get("beds") || "") === b;
+              return (
+                <button
+                  key={b} type="button"
+                  onClick={() => {
+                    const p = new URLSearchParams(params);
+                    b ? p.set("beds", b) : p.delete("beds");
+                    setParams(p);
+                  }}
+                  className={`rounded-full border px-4 py-1.5 text-xs font-bold transition-colors ${active
+                    ? "border-emerald-600 bg-emerald-600 text-white"
+                    : "border-slate-200 bg-white text-slate-500 hover:border-emerald-400 hover:text-emerald-700"}`}
+                >{b ? `${b} BHK${b === "4" ? "+" : ""}` : "Any"}</button>
+              );
+            })}
           </div>
 
           {landmark && (

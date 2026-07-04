@@ -31,6 +31,8 @@ Dev mode with HMR: `cd client && npm run dev` (proxies /api to :4173).
 | `DATABASE_URL` | `postgresql://localhost:5433/nestora` | Set to your **Supabase** connection string (Project Settings → Database) to go hosted |
 | `SMTP_HOST` | unset (demo mode) | When unset, OTPs are logged + shown in the UI. Implement `sendEmail()` in `server/src/db.service.ts` with nodemailer/SES/Resend — or use Supabase Auth's email OTP |
 | `PORT` | 4173 | |
+| `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | unset | Enables "Continue with Google" SSO. Create an OAuth client in Google Cloud Console with redirect URI `<PUBLIC_URL>/api/auth/google/callback` |
+| `PUBLIC_URL` | `http://localhost:4173` | Used for the OAuth redirect URI |
 
 ## Features
 

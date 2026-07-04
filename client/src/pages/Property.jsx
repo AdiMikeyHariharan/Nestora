@@ -26,6 +26,11 @@ export default function Property() {
   const [similar, setSimilar] = useState([]);
 
   useEffect(() => {
+    // track recently viewed (most recent first, max 6)
+    try {
+      const seen = JSON.parse(localStorage.getItem("nst_recent") || "[]").filter(x => x !== id);
+      localStorage.setItem("nst_recent", JSON.stringify([id, ...seen].slice(0, 6)));
+    } catch { /* ignore */ }
     api.get("/properties/" + id)
       .then(d => { setP(d.property); setMainImg(d.property.img); return d.property; })
       .then(prop => api.get("/properties").then(({ properties }) => {
@@ -57,8 +62,10 @@ export default function Property() {
 
   const isRent = p.type === "rent";
   const saved = shortlist.includes(p.id);
-  const photos = p.photos && p.photos.length ? p.photos :
-    [p.img, ...(p.img && p.img.includes("picsum") ? [1, 2, 3].map(n => p.img.replace("/800/500", `-${n}/800/500`).replace("seed/", "seed/x")) : [])].filter(Boolean);
+  // curated interior shots pad out seed galleries; user uploads take precedence
+  const stockInteriors = ["1560185007-cde436f6a4d0", "1600121848594-d8644e57abab", "1600210491892-03d54c0aaf87"]
+    .map(id => `https://images.unsplash.com/photo-${id}?auto=format&fit=crop&w=800&q=70`);
+  const photos = p.photos && p.photos.length ? p.photos : [p.img, ...stockInteriors].filter(Boolean);
 
   const startBooking = async () => {
     if (!user) {

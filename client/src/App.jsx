@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { useApp } from "./store.jsx";
 import { NESTORA, waLink } from "./api.js";
 import ChatWidget from "./components/ChatWidget.jsx";
+import { WaIcon } from "./components/icons.jsx";
 import Home from "./pages/Home.jsx";
 import Listings from "./pages/Listings.jsx";
 import Property from "./pages/Property.jsx";
@@ -134,10 +135,10 @@ export default function App() {
       </Routes>
       <Footer />
       <a
-        className="fixed bottom-6 right-6 z-[60] grid h-14 w-14 place-items-center rounded-full bg-[#25d366] text-2xl shadow-xl shadow-black/25 transition-transform hover:scale-110"
+        className="fixed bottom-6 right-6 z-[60] grid h-14 w-14 place-items-center rounded-full bg-[#25d366] text-white shadow-xl shadow-black/25 transition-transform hover:scale-110"
         href={waLink("Hi Nestora! I'd like help finding a property.")}
-        target="_blank" rel="noreferrer" title="WhatsApp us"
-      >🟢</a>
+        target="_blank" rel="noreferrer" title="WhatsApp us" aria-label="Chat on WhatsApp"
+      ><WaIcon size={26} /></a>
       <ChatWidget />
     </>
   );
