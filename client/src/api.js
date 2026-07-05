@@ -6,10 +6,15 @@ export const NESTORA = {
   symbol: { INR: "₹", USD: "$", AED: "AED ", GBP: "£", EUR: "€" }
 };
 
+// Base for API calls. Empty by default → relative "/api" (works when the
+// backend co-serves the app, or when Vercel rewrites /api/* to the backend).
+// Set VITE_API_URL to an absolute backend origin to call it cross-origin instead.
+const API_BASE = (import.meta.env.VITE_API_URL || "").replace(/\/$/, "");
+
 export const api = {
   token: () => localStorage.getItem("nst_token") || "",
   async call(path, opts = {}) {
-    const res = await fetch("/api" + path, {
+    const res = await fetch(API_BASE + "/api" + path, {
       method: opts.method || "GET",
       headers: {
         "Content-Type": "application/json",
