@@ -33,6 +33,7 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
+require("dotenv/config");
 require("reflect-metadata");
 const core_1 = require("@nestjs/core");
 const node_path_1 = require("node:path");

@@ -1,5 +1,6 @@
 import { Body, Controller, Get, Post, Query, Req, Res, HttpException } from "@nestjs/common";
 import { DbService } from "./db.service";
+import * as crypto from "node:crypto";
 
 const err = (code: number, msg: string) => new HttpException({ error: msg }, code);
 const PUBLIC_URL = process.env.PUBLIC_URL || "http://localhost:" + (process.env.PORT || 4173);
@@ -18,8 +19,8 @@ export class AuthController {
     if (rows.length) throw err(409, "Account exists — please login");
     await this.db.q("INSERT INTO users (email,name,password,role) VALUES ($1,$2,$3,$4)",
       [em, name.trim(), this.db.hashPassword(password), role || "buyer"]);
-    const otp = await this.db.issueOtp(em);
-    return { needsOtp: true, email: em, ...(this.db.demoMode ? { demo_otp: otp } : {}) };
+    await this.db.issueOtp(em);
+    return { needsOtp: true, email: em };
   }
 
   @Post("verify")
@@ -39,22 +40,27 @@ export class AuthController {
     const em = (body.email || "").trim().toLowerCase();
     const { rows } = await this.db.q("SELECT 1 FROM users WHERE email = $1", [em]);
     if (!rows.length) throw err(404, "No such account");
-    const otp = await this.db.issueOtp(em);
-    return { ok: true, ...(this.db.demoMode ? { demo_otp: otp } : {}) };
+    await this.db.issueOtp(em);
+    return { ok: true };
   }
 
   @Post("login")
   async login(@Body() body: any) {
     const em = (body.email || "").trim().toLowerCase();
     const { rows: [u] } = await this.db.q("SELECT * FROM users WHERE email = $1", [em]);
-    if (!u || !this.db.checkPassword(body.password || "", u.password))
+    if (!u || !u.password || !this.db.checkPassword(body.password || "", u.password))
       throw err(401, "Invalid email or password");
-    if (!u.verified) {
-      const otp = await this.db.issueOtp(em);
-      return { needsOtp: true, email: em, ...(this.db.demoMode ? { demo_otp: otp } : {}) };
-    }
     const token = await this.db.createSession(em);
     return { token, user: this.db.publicUser(u) };
+  }
+
+  @Post("login-otp")
+  async loginOtp(@Body() body: any) {
+    const em = (body.email || "").trim().toLowerCase();
+    const { rows: [u] } = await this.db.q("SELECT * FROM users WHERE email = $1", [em]);
+    if (!u) throw err(404, "No account found with this email");
+    await this.db.issueOtp(em);
+    return { needsOtp: true, email: em };
   }
 
   // ---- SSO (Google OAuth 2.0 authorization-code flow) ----
@@ -95,16 +101,70 @@ export class AuthController {
         { headers: { Authorization: "Bearer " + access_token } })).json();
       if (!info.email) throw new Error("no email from Google");
       const em = info.email.toLowerCase();
-      // Google has verified the email — upsert as a verified, passwordless account
-      await this.db.q(`INSERT INTO users (email, name, password, role, verified) VALUES ($1,$2,NULL,'buyer',TRUE)
-        ON CONFLICT (email) DO UPDATE SET verified = TRUE, name = COALESCE(users.name, $2)`, [em, info.name || em]);
+      
+      // Check if user already exists
       const { rows: [u] } = await this.db.q("SELECT * FROM users WHERE email = $1", [em]);
-      const token = await this.db.createSession(em);
-      const user = Buffer.from(JSON.stringify(this.db.publicUser(u))).toString("base64url");
-      res.redirect(`/login?sso=${token}&u=${user}`);
+      
+      if (u && u.password) {
+        // Log in directly since the user already exists and has a password
+        await this.db.q("UPDATE users SET verified = TRUE WHERE email = $1", [em]);
+        const token = await this.db.createSession(em);
+        const user = Buffer.from(JSON.stringify(this.db.publicUser(u))).toString("base64url");
+        return res.redirect(PUBLIC_URL + `/login?sso=${token}&u=${user}`);
+      }
+      
+      // If user doesn't exist, register them with NULL password first
+      if (!u) {
+        await this.db.q(`INSERT INTO users (email, name, password, role, verified) VALUES ($1,$2,NULL,'buyer',TRUE)`, 
+          [em, info.name || em]);
+      }
+      
+      // Generate a temporary Google SSO token to let them set a password (for new accounts or passwordless accounts)
+      const tempToken = "google-temp-" + crypto.randomBytes(24).toString("hex");
+      await this.db.q("INSERT INTO sessions (token, email) VALUES ($1, $2)", [tempToken, em]);
+      
+      const name = u ? u.name : (info.name || em);
+      res.redirect(PUBLIC_URL + `/login?google_sso=1&temp_token=${tempToken}&email=${em}&name=${encodeURIComponent(name)}&has_password=false`);
     } catch (e) {
-      res.redirect("/login?sso_error=" + encodeURIComponent("Google sign-in failed — try again"));
+      console.error("Google SSO Callback error:", e);
+      res.redirect(PUBLIC_URL + "/login?sso_error=" + encodeURIComponent("Google sign-in failed — try again"));
     }
+  }
+
+  @Post("google/confirm")
+  async googleConfirm(@Body() body: any) {
+    const { temp_token, password } = body;
+    if (!temp_token || !temp_token.startsWith("google-temp-")) {
+      throw err(400, "Invalid session");
+    }
+    
+    // Retrieve email from session
+    const { rows: [sess] } = await this.db.q("SELECT * FROM sessions WHERE token = $1", [temp_token]);
+    if (!sess) throw err(400, "Google authentication session expired or invalid");
+    
+    const em = sess.email;
+    const { rows: [u] } = await this.db.q("SELECT * FROM users WHERE email = $1", [em]);
+    if (!u) throw err(404, "User not found");
+    
+    // Delete the temporary session
+    await this.db.q("DELETE FROM sessions WHERE token = $1", [temp_token]);
+    
+    if (u.password) {
+      // User already has a password, we must verify it
+      if (!this.db.checkPassword(password || "", u.password)) {
+        throw err(401, "Incorrect password for this account");
+      }
+    } else {
+      // User does not have a password, we set it
+      if (!password || password.length < 6) {
+        throw err(400, "Password must be at least 6 characters");
+      }
+      await this.db.q("UPDATE users SET password = $1 WHERE email = $2", [this.db.hashPassword(password), em]);
+    }
+    
+    // Create a permanent session token
+    const token = await this.db.createSession(em);
+    return { token, user: this.db.publicUser(u) };
   }
 
   @Post("logout")

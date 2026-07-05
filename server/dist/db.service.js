@@ -45,6 +45,7 @@ exports.DbService = void 0;
 const common_1 = require("@nestjs/common");
 const pg_1 = require("pg");
 const crypto = __importStar(require("node:crypto"));
+const resend_1 = require("resend");
 let DbService = class DbService {
     pool = new pg_1.Pool({
         connectionString: process.env.DATABASE_URL || "postgresql://localhost:5433/nestora",
@@ -148,11 +149,31 @@ let DbService = class DbService {
         await this.q("INSERT INTO sessions (token,email) VALUES ($1,$2)", [token, email]);
         return token;
     }
-    // DEMO email transport: logs the OTP. Swap for nodemailer/SES/Resend (or
-    // Supabase Auth's built-in OTP emails once you connect a Supabase project).
-    demoMode = !process.env.SMTP_HOST;
-    sendEmail(to, subject, text) {
+    resend = new resend_1.Resend(process.env.RESEND_API_KEY);
+    async sendEmail(to, subject, text) {
         console.log(`\n=== EMAIL to ${to} ===\n${subject}\n${text}\n====================\n`);
+        try {
+            await this.resend.emails.send({
+                from: "Nestora <noreply@nestora.properties>",
+                to: to,
+                replyTo: "support@nestora.properties",
+                subject: subject,
+                html: `<div style="font-family: sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; line-height: 1.6; border: 1px solid #e2e8f0; border-radius: 12px;">
+          <div style="background-color: #059669; padding: 15px; text-align: center; border-radius: 8px 8px 0 0;">
+            <h1 style="color: #ffffff; margin: 0; font-size: 24px; font-weight: 800;">Nestora</h1>
+          </div>
+          <div style="padding: 20px; color: #1e293b;">
+            <p style="margin-top: 0; font-size: 16px;">${text.replace(/\n/g, "<br>")}</p>
+          </div>
+          <div style="border-top: 1px solid #e2e8f0; padding-top: 15px; text-align: center; font-size: 12px; color: #64748b;">
+            Nestora properties · Find your nest
+          </div>
+        </div>`
+            });
+        }
+        catch (err) {
+            console.error("Failed to send email via Resend SDK:", err);
+        }
     }
     async issueOtp(email) {
         const otp = "" + crypto.randomInt(100000, 1000000);
