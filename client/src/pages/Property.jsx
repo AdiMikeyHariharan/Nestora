@@ -7,6 +7,7 @@ import MapPanel from "../components/MapPanel.jsx";
 import CheckoutModal from "../components/CheckoutModal.jsx";
 import MortgageCalc from "../components/MortgageCalc.jsx";
 import PropertyCard from "../components/PropertyCard.jsx";
+import { SkeletonProperty } from "../components/Skeleton.jsx";
 import { CalendarIcon, MailIcon, WaIcon, HeartIcon, PinIcon } from "../components/icons.jsx";
 
 const fieldCls = "w-full rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 text-sm outline-none focus:ring-2 focus:ring-emerald-500";
