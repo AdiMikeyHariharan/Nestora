@@ -1,7 +1,7 @@
 // Nestora API client + shared helpers
 export const NESTORA = {
   whatsapp: "919000000000",        // demo WhatsApp business number
-  email: "hello@nestora.in",        // demo enquiry inbox
+  email: "support@nestora.properties",   // enquiry / support inbox
   rates: { INR: 1, USD: 1 / 83, AED: 1 / 22.6, GBP: 1 / 105, EUR: 1 / 90 },
   symbol: { INR: "₹", USD: "$", AED: "AED ", GBP: "£", EUR: "€" }
 };
