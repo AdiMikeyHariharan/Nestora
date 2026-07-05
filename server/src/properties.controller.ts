@@ -44,6 +44,18 @@ export class PropertiesController {
     return { properties: list };
   }
 
+  @Get("properties/recommended")
+  async recommended(@Query("lat") latStr: string, @Query("lng") lngStr: string) {
+    if (!latStr || !lngStr) throw err(400, "lat and lng are required");
+    const lat = parseFloat(latStr);
+    const lng = parseFloat(lngStr);
+    if (isNaN(lat) || isNaN(lng)) throw err(400, "Invalid lat or lng");
+
+    const { rows } = await this.db.q("SELECT * FROM properties ORDER BY created_at DESC");
+    const properties = rows.map(r => this.db.toApiProp(r));
+    return this.geo.clusterAndRecommend(properties, lat, lng);
+  }
+
   @Get("properties/:id")
   async one(@Param("id") id: string) {
     const { rows: [row] } = await this.db.q("SELECT * FROM properties WHERE id = $1", [id]);

@@ -1,10 +1,43 @@
 "use strict";
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
 var __decorate = (this && this.__decorate) || function (decorators, target, key, desc) {
     var c = arguments.length, r = c < 3 ? target : desc === null ? desc = Object.getOwnPropertyDescriptor(target, key) : desc, d;
     if (typeof Reflect === "object" && typeof Reflect.decorate === "function") r = Reflect.decorate(decorators, target, key, desc);
     else for (var i = decorators.length - 1; i >= 0; i--) if (d = decorators[i]) r = (c < 3 ? d(r) : c > 3 ? d(target, key, r) : d(target, key)) || r;
     return c > 3 && r && Object.defineProperty(target, key, r), r;
 };
+var __importStar = (this && this.__importStar) || (function () {
+    var ownKeys = function(o) {
+        ownKeys = Object.getOwnPropertyNames || function (o) {
+            var ar = [];
+            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
+            return ar;
+        };
+        return ownKeys(o);
+    };
+    return function (mod) {
+        if (mod && mod.__esModule) return mod;
+        var result = {};
+        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
+        __setModuleDefault(result, mod);
+        return result;
+    };
+})();
 var __metadata = (this && this.__metadata) || function (k, v) {
     if (typeof Reflect === "object" && typeof Reflect.metadata === "function") return Reflect.metadata(k, v);
 };
@@ -15,6 +48,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.MeController = exports.AuthController = void 0;
 const common_1 = require("@nestjs/common");
 const db_service_1 = require("./db.service");
+const crypto = __importStar(require("node:crypto"));
 const err = (code, msg) => new common_1.HttpException({ error: msg }, code);
 const PUBLIC_URL = process.env.PUBLIC_URL || "http://localhost:" + (process.env.PORT || 4173);
 let AuthController = class AuthController {
@@ -31,8 +65,8 @@ let AuthController = class AuthController {
         if (rows.length)
             throw err(409, "Account exists — please login");
         await this.db.q("INSERT INTO users (email,name,password,role) VALUES ($1,$2,$3,$4)", [em, name.trim(), this.db.hashPassword(password), role || "buyer"]);
-        const otp = await this.db.issueOtp(em);
-        return { needsOtp: true, email: em, ...(this.db.demoMode ? { demo_otp: otp } : {}) };
+        await this.db.issueOtp(em);
+        return { needsOtp: true, email: em };
     }
     async verify(body) {
         const em = (body.email || "").trim().toLowerCase();
@@ -52,20 +86,24 @@ let AuthController = class AuthController {
         const { rows } = await this.db.q("SELECT 1 FROM users WHERE email = $1", [em]);
         if (!rows.length)
             throw err(404, "No such account");
-        const otp = await this.db.issueOtp(em);
-        return { ok: true, ...(this.db.demoMode ? { demo_otp: otp } : {}) };
+        await this.db.issueOtp(em);
+        return { ok: true };
     }
     async login(body) {
         const em = (body.email || "").trim().toLowerCase();
         const { rows: [u] } = await this.db.q("SELECT * FROM users WHERE email = $1", [em]);
-        if (!u || !this.db.checkPassword(body.password || "", u.password))
+        if (!u || !u.password || !this.db.checkPassword(body.password || "", u.password))
             throw err(401, "Invalid email or password");
-        if (!u.verified) {
-            const otp = await this.db.issueOtp(em);
-            return { needsOtp: true, email: em, ...(this.db.demoMode ? { demo_otp: otp } : {}) };
-        }
         const token = await this.db.createSession(em);
         return { token, user: this.db.publicUser(u) };
+    }
+    async loginOtp(body) {
+        const em = (body.email || "").trim().toLowerCase();
+        const { rows: [u] } = await this.db.q("SELECT * FROM users WHERE email = $1", [em]);
+        if (!u)
+            throw err(404, "No account found with this email");
+        await this.db.issueOtp(em);
+        return { needsOtp: true, email: em };
     }
     // ---- SSO (Google OAuth 2.0 authorization-code flow) ----
     // Needs GOOGLE_CLIENT_ID + GOOGLE_CLIENT_SECRET (Google Cloud Console →
@@ -100,17 +138,61 @@ let AuthController = class AuthController {
             if (!info.email)
                 throw new Error("no email from Google");
             const em = info.email.toLowerCase();
-            // Google has verified the email — upsert as a verified, passwordless account
-            await this.db.q(`INSERT INTO users (email, name, password, role, verified) VALUES ($1,$2,NULL,'buyer',TRUE)
-        ON CONFLICT (email) DO UPDATE SET verified = TRUE, name = COALESCE(users.name, $2)`, [em, info.name || em]);
+            // Check if user already exists
             const { rows: [u] } = await this.db.q("SELECT * FROM users WHERE email = $1", [em]);
-            const token = await this.db.createSession(em);
-            const user = Buffer.from(JSON.stringify(this.db.publicUser(u))).toString("base64url");
-            res.redirect(`/login?sso=${token}&u=${user}`);
+            if (u && u.password) {
+                // Log in directly since the user already exists and has a password
+                await this.db.q("UPDATE users SET verified = TRUE WHERE email = $1", [em]);
+                const token = await this.db.createSession(em);
+                const user = Buffer.from(JSON.stringify(this.db.publicUser(u))).toString("base64url");
+                return res.redirect(PUBLIC_URL + `/login?sso=${token}&u=${user}`);
+            }
+            // If user doesn't exist, register them with NULL password first
+            if (!u) {
+                await this.db.q(`INSERT INTO users (email, name, password, role, verified) VALUES ($1,$2,NULL,'buyer',TRUE)`, [em, info.name || em]);
+            }
+            // Generate a temporary Google SSO token to let them set a password (for new accounts or passwordless accounts)
+            const tempToken = "google-temp-" + crypto.randomBytes(24).toString("hex");
+            await this.db.q("INSERT INTO sessions (token, email) VALUES ($1, $2)", [tempToken, em]);
+            const name = u ? u.name : (info.name || em);
+            res.redirect(PUBLIC_URL + `/login?google_sso=1&temp_token=${tempToken}&email=${em}&name=${encodeURIComponent(name)}&has_password=false`);
         }
         catch (e) {
-            res.redirect("/login?sso_error=" + encodeURIComponent("Google sign-in failed — try again"));
+            console.error("Google SSO Callback error:", e);
+            res.redirect(PUBLIC_URL + "/login?sso_error=" + encodeURIComponent("Google sign-in failed — try again"));
         }
+    }
+    async googleConfirm(body) {
+        const { temp_token, password } = body;
+        if (!temp_token || !temp_token.startsWith("google-temp-")) {
+            throw err(400, "Invalid session");
+        }
+        // Retrieve email from session
+        const { rows: [sess] } = await this.db.q("SELECT * FROM sessions WHERE token = $1", [temp_token]);
+        if (!sess)
+            throw err(400, "Google authentication session expired or invalid");
+        const em = sess.email;
+        const { rows: [u] } = await this.db.q("SELECT * FROM users WHERE email = $1", [em]);
+        if (!u)
+            throw err(404, "User not found");
+        // Delete the temporary session
+        await this.db.q("DELETE FROM sessions WHERE token = $1", [temp_token]);
+        if (u.password) {
+            // User already has a password, we must verify it
+            if (!this.db.checkPassword(password || "", u.password)) {
+                throw err(401, "Incorrect password for this account");
+            }
+        }
+        else {
+            // User does not have a password, we set it
+            if (!password || password.length < 6) {
+                throw err(400, "Password must be at least 6 characters");
+            }
+            await this.db.q("UPDATE users SET password = $1 WHERE email = $2", [this.db.hashPassword(password), em]);
+        }
+        // Create a permanent session token
+        const token = await this.db.createSession(em);
+        return { token, user: this.db.publicUser(u) };
     }
     async logout(req) {
         const token = (req.headers.authorization || "").replace(/^Bearer\s+/i, "");
@@ -148,6 +230,13 @@ __decorate([
     __metadata("design:returntype", Promise)
 ], AuthController.prototype, "login", null);
 __decorate([
+    (0, common_1.Post)("login-otp"),
+    __param(0, (0, common_1.Body)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [Object]),
+    __metadata("design:returntype", Promise)
+], AuthController.prototype, "loginOtp", null);
+__decorate([
     (0, common_1.Get)("sso/status"),
     __metadata("design:type", Function),
     __metadata("design:paramtypes", []),
@@ -168,6 +257,13 @@ __decorate([
     __metadata("design:paramtypes", [String, Object]),
     __metadata("design:returntype", Promise)
 ], AuthController.prototype, "googleCallback", null);
+__decorate([
+    (0, common_1.Post)("google/confirm"),
+    __param(0, (0, common_1.Body)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [Object]),
+    __metadata("design:returntype", Promise)
+], AuthController.prototype, "googleConfirm", null);
 __decorate([
     (0, common_1.Post)("logout"),
     __param(0, (0, common_1.Req)()),

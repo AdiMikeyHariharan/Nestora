@@ -67,6 +67,17 @@ let PropertiesController = class PropertiesController {
         }
         return { properties: list };
     }
+    async recommended(latStr, lngStr) {
+        if (!latStr || !lngStr)
+            throw err(400, "lat and lng are required");
+        const lat = parseFloat(latStr);
+        const lng = parseFloat(lngStr);
+        if (isNaN(lat) || isNaN(lng))
+            throw err(400, "Invalid lat or lng");
+        const { rows } = await this.db.q("SELECT * FROM properties ORDER BY created_at DESC");
+        const properties = rows.map(r => this.db.toApiProp(r));
+        return this.geo.clusterAndRecommend(properties, lat, lng);
+    }
     async one(id) {
         const { rows: [row] } = await this.db.q("SELECT * FROM properties WHERE id = $1", [id]);
         if (!row)
@@ -130,6 +141,14 @@ __decorate([
     __metadata("design:paramtypes", [Object]),
     __metadata("design:returntype", Promise)
 ], PropertiesController.prototype, "list", null);
+__decorate([
+    (0, common_1.Get)("properties/recommended"),
+    __param(0, (0, common_1.Query)("lat")),
+    __param(1, (0, common_1.Query)("lng")),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [String, String]),
+    __metadata("design:returntype", Promise)
+], PropertiesController.prototype, "recommended", null);
 __decorate([
     (0, common_1.Get)("properties/:id"),
     __param(0, (0, common_1.Param)("id")),

@@ -21,9 +21,37 @@ export default function Listings() {
     furnishing: params.get("furnishing") || ""
   });
 
-  const near = params.get("near");
-  const radius = parseFloat(params.get("radius") || "10");
-  const landmarkName = params.get("lname");
+  // State for user's active geolocation
+  const [loc, setLoc] = useState(() => {
+    try {
+      return JSON.parse(localStorage.getItem("nst_loc") || "null");
+    } catch {
+      return null;
+    }
+  });
+
+  // Automatically request geolocation if not already stored
+  useEffect(() => {
+    if (!loc && navigator.geolocation && params.get("local") !== "false") {
+      navigator.geolocation.getCurrentPosition(
+        (position) => {
+          const coords = { lat: position.coords.latitude, lng: position.coords.longitude };
+          setLoc(coords);
+          localStorage.setItem("nst_loc", JSON.stringify(coords));
+        },
+        () => {
+          // ignore geolocation block, falls back to nationwide listings
+        }
+      );
+    }
+  }, [loc, params]);
+
+  const hasExplicitLocation = params.has("q") || params.has("near") || params.has("pincode") || params.get("local") === "false";
+
+  const near = params.get("near") || (!hasExplicitLocation && loc ? `${loc.lat},${loc.lng}` : null);
+  const radius = parseFloat(params.get("radius") || (params.get("near") ? "10" : "50"));
+  const landmarkName = params.get("lname") || (!params.get("near") && !hasExplicitLocation && loc ? "Your Location" : null);
+
   const landmark = near ? (() => {
     const [lat, lng] = near.split(",").map(Number);
     return { name: landmarkName || "Selected landmark", lat, lng };
@@ -31,11 +59,16 @@ export default function Listings() {
 
   useEffect(() => {
     setLoading(true);
-    api.get("/properties?" + params.toString())
+    let queryParams = new URLSearchParams(params);
+    if (!hasExplicitLocation && loc) {
+      queryParams.set("near", `${loc.lat},${loc.lng}`);
+      queryParams.set("radius", String(radius));
+    }
+    api.get("/properties?" + queryParams.toString())
       .then(d => setList(d.properties))
       .catch(() => setList([]))
       .finally(() => setLoading(false));
-  }, [params]);
+  }, [params, hasExplicitLocation, loc, radius]);
 
   const applyFilters = e => {
     e.preventDefault();
@@ -52,6 +85,7 @@ export default function Listings() {
   const clearNear = () => {
     const p = new URLSearchParams(params);
     ["near", "radius", "lname"].forEach(k => p.delete(k));
+    p.set("local", "false");
     setParams(p);
   };
   const onLandmark = lm => {
@@ -59,6 +93,7 @@ export default function Listings() {
     p.set("near", lm.lat + "," + lm.lng);
     p.set("radius", "10");
     p.set("lname", lm.name);
+    p.delete("local");
     setParams(p);
   };
 
@@ -158,7 +193,7 @@ export default function Listings() {
             })}
           </div>
 
-          {landmark && (
+          {landmark ? (
             <div className="mt-4 flex flex-wrap items-center gap-4">
               <span className="inline-flex items-center gap-2 rounded-full border border-emerald-300 bg-emerald-50 px-4 py-1.5 text-sm font-bold text-emerald-800">
                 📍 Near {landmark.name.split(",").slice(0, 2).join(",")}
@@ -166,9 +201,39 @@ export default function Listings() {
               </span>
               <span className="flex items-center gap-2.5 text-sm font-semibold text-slate-500">
                 within
-                <input type="range" min="1" max="25" value={radius} onChange={e => setRadius(e.target.value)} className="w-32" />
+                <input type="range" min="1" max="100" value={radius} onChange={e => setRadius(e.target.value)} className="w-32" />
                 <b className="text-emerald-700">{radius} km</b>
               </span>
+            </div>
+          ) : (
+            <div className="mt-4 flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  if (loc) {
+                    const p = new URLSearchParams(params);
+                    p.delete("local");
+                    setParams(p);
+                  } else {
+                    navigator.geolocation.getCurrentPosition(
+                      (position) => {
+                        const coords = { lat: position.coords.latitude, lng: position.coords.longitude };
+                        setLoc(coords);
+                        localStorage.setItem("nst_loc", JSON.stringify(coords));
+                        const p = new URLSearchParams(params);
+                        p.delete("local");
+                        setParams(p);
+                      },
+                      () => {
+                        alert("Could not access location. Please check browser settings/permissions.");
+                      }
+                    );
+                  }
+                }}
+                className="inline-flex items-center gap-1.5 rounded-full border border-emerald-200 bg-emerald-50 px-4 py-1.5 text-xs font-bold text-emerald-700 hover:bg-emerald-100 transition-colors cursor-pointer"
+              >
+                📍 Use My Location
+              </button>
             </div>
           )}
         </form>
