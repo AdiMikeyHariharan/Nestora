@@ -50,7 +50,9 @@ const common_1 = require("@nestjs/common");
 const crypto = __importStar(require("node:crypto"));
 const db_service_1 = require("./db.service");
 const err = (code, msg) => new common_1.HttpException({ error: msg }, code);
-const VISIT_FEE_INR = 999; // refundable site-visit token amount
+// Free while we collect data/leads. Set VISIT_FEE_INR > 0 (env) to re-enable the
+// refundable site-visit token + checkout flow — the payment plumbing stays intact.
+const VISIT_FEE_INR = parseInt(process.env.VISIT_FEE_INR || "0", 10);
 let AccountController = class AccountController {
     db;
     constructor(db) {
@@ -86,6 +88,13 @@ let AccountController = class AccountController {
         if (!prop)
             throw err(404, "Property not found");
         const bid = this.db.uid("visit");
+        // Free mode: confirm the booking immediately, no invoice/payment.
+        if (VISIT_FEE_INR <= 0) {
+            await this.db.q("INSERT INTO bookings (id,email,property_id,date_pref,status) VALUES ($1,$2,$3,$4,'confirmed')", [bid, user.email, prop.id, body.date_pref || ""]);
+            this.db.sendEmail(user.email, "Visit confirmed — " + prop.title, `Hi ${user.name}, your site visit for ${prop.title} (${prop.area}, ${prop.city}) is confirmed. Our advisor will call to finalise the time.`);
+            return { booking_id: bid, amount: 0, free: true };
+        }
+        // Paid mode: booking awaits a refundable-token payment.
         await this.db.q("INSERT INTO bookings (id,email,property_id,date_pref,status) VALUES ($1,$2,$3,$4,'awaiting_payment')", [bid, user.email, prop.id, body.date_pref || ""]);
         const iid = this.db.uid("inv");
         await this.db.q("INSERT INTO invoices (id,email,booking_id,description,amount) VALUES ($1,$2,$3,$4,$5)", [iid, user.email, bid, `Site-visit token — ${prop.title} (${prop.area}, ${prop.city})`, VISIT_FEE_INR]);
@@ -120,6 +129,33 @@ let AccountController = class AccountController {
             await this.db.q("UPDATE bookings SET status='confirmed' WHERE id=$1", [inv.booking_id]);
         this.db.sendEmail(user.email, "Payment received — " + inv.id, `We received ₹${inv.amount} (ref ${ref}). Your site visit is confirmed — our advisor will call to fix the slot.`);
         return { ok: true, gateway_ref: ref };
+    }
+    // ---- AI chat (Claude API). Set ANTHROPIC_API_KEY to enable; the client
+    // falls back to the built-in rule-based search when this returns 501. ----
+    async chatAsk(body) {
+        const key = process.env.ANTHROPIC_API_KEY;
+        if (!key)
+            throw err(501, "AI chat not configured — set ANTHROPIC_API_KEY");
+        const { rows } = await this.db.q("SELECT id,title,type,category,city,area,pincode,price_inr,beds,baths,sqft,furnishing FROM properties ORDER BY created_at DESC LIMIT 60");
+        const resp = await fetch("https://api.anthropic.com/v1/messages", {
+            method: "POST",
+            headers: { "x-api-key": key, "anthropic-version": "2023-06-01", "content-type": "application/json" },
+            body: JSON.stringify({
+                model: "claude-haiku-4-5-20251001",
+                max_tokens: 500,
+                system: `You are Nestora's professional real-estate assistant (India). Be concise, warm and factual — no emoji.
+Answer only from this live inventory (price_inr is INR; type buy=sale, rent=monthly):
+${JSON.stringify(rows)}
+When recommending homes, end with a line: PROPS:<comma-separated ids> so the UI can render cards. If asked to book a visit, explain: open the property page and select "Schedule a visit" (refundable ₹999 token confirms the slot).`,
+                messages: (body.messages || []).slice(-12)
+            })
+        });
+        if (!resp.ok)
+            throw err(502, "AI service unavailable");
+        const data = await resp.json();
+        const text = data.content?.[0]?.text || "";
+        const ids = (text.match(/PROPS:([\w,-]+)/)?.[1] || "").split(",").filter(Boolean);
+        return { reply: text.replace(/PROPS:[\w,-]+/g, "").trim(), propertyIds: ids };
     }
     // ---- Chatbot conversation log ----
     async chatLog(body) {
@@ -181,6 +217,13 @@ __decorate([
     __metadata("design:paramtypes", [Object, Object]),
     __metadata("design:returntype", Promise)
 ], AccountController.prototype, "pay", null);
+__decorate([
+    (0, common_1.Post)("chat/ask"),
+    __param(0, (0, common_1.Body)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [Object]),
+    __metadata("design:returntype", Promise)
+], AccountController.prototype, "chatAsk", null);
 __decorate([
     (0, common_1.Post)("chat/log"),
     __param(0, (0, common_1.Body)()),

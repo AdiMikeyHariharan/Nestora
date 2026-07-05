@@ -5,7 +5,33 @@
       "name": "fns-site",
       "runtimeExecutable": "node",
       "runtimeArgs": ["server/dist/main.js"],
-      "port": 4173
+      "port": 4173,
+      "autoPort": true
+    },
+    {
+      "name": "th-backend",
+      "runtimeExecutable": "/Users/adityahariharan/threat hunting/.venv/bin/python",
+      "runtimeArgs": [
+        "-m",
+        "uvicorn",
+        "web.backend.app:app",
+        "--app-dir",
+        "/Users/adityahariharan/threat hunting",
+        "--port",
+        "8000"
+      ],
+      "port": 8000
+    },
+    {
+      "name": "th-frontend",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "--prefix",
+        "/Users/adityahariharan/threat hunting/frontend",
+        "run",
+        "dev"
+      ],
+      "port": 5173
     }
   ]
 }

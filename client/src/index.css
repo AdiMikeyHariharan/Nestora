@@ -75,3 +75,11 @@ input[type="range"] { accent-color: #059669; }
 
 /* serif editorial accent */
 .serif-accent { font-family: var(--font-serif); font-style: italic; letter-spacing: -0.01em; }
+
+/* skeleton shimmer */
+@keyframes skeleton-shimmer { to { background-position: -200% 0; } }
+.skeleton {
+  background: linear-gradient(90deg, #e9edf2 25%, #f3f6f9 37%, #e9edf2 63%);
+  background-size: 200% 100%;
+  animation: skeleton-shimmer 1.4s ease-in-out infinite;
+}

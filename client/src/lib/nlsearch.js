@@ -4,7 +4,7 @@ import { api } from "../api.js";
 
 export function parseQuery(t, places = []) {
   const q = {};
-  const bhk = t.match(/(\d+)\s*bhk/); if (bhk) q.beds = parseInt(bhk[1], 10);
+  const bhk = t.match(/(\d+(?:\.\d+)?)\s*bhk/); if (bhk) q.beds = parseFloat(bhk[1]);
   if (/\brent(al|ing)?\b|to let|lease/.test(t)) q.type = "rent";
   else if (/\bbuy(ing)?\b|purchase|sale/.test(t)) q.type = "buy";
   if (/resale|second hand|pre-?owned/.test(t)) q.category = "resale";
@@ -20,12 +20,35 @@ export function parseQuery(t, places = []) {
   if (!q.type && q.budget) q.type = q.budget >= 500000 ? "buy" : "rent";
   const near = t.match(/near(?:by| to)?\s+([a-z0-9' ]+?)(?:\s+(?:under|below|for|with|upto|up to|in)\b|[.,!?]|$)/);
   if (near) q.near = near[1].trim();
+  // Match a city/area from the live data. Try exact place names first, then
+  // common colloquial/legacy aliases so "bangalore" resolves to "Bengaluru".
   for (const place of places) {
-    if (t.includes(place.toLowerCase()) && place.toLowerCase() !== q.near) { q.place = place; break; }
+    if (new RegExp(`\\b${place.toLowerCase().replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`).test(t) && place.toLowerCase() !== q.near) { q.place = place; break; }
+  }
+  if (!q.place) {
+    for (const [alias, canon] of Object.entries(CITY_ALIASES)) {
+      if (new RegExp(`\\b${alias}\\b`).test(t)) {
+        q.place = places.find(p => p.toLowerCase() === canon) || canon.replace(/\b\w/g, c => c.toUpperCase());
+        break;
+      }
+    }
   }
   const pin = t.match(/\b(\d{6})\b/); if (pin) q.pincode = pin[1];
   return q;
 }
+
+// Colloquial / legacy city names → canonical
+const CITY_ALIASES = {
+  bangalore: "bengaluru", bengaluru: "bengaluru", blr: "bengaluru",
+  bombay: "mumbai", mumbai: "mumbai",
+  madras: "chennai", chennai: "chennai",
+  calcutta: "kolkata", kolkata: "kolkata",
+  gurgaon: "gurugram", gurugram: "gurugram",
+  vizag: "visakhapatnam", trivandrum: "thiruvananthapuram",
+  hyderabad: "hyderabad", hyd: "hyderabad",
+  "new delhi": "delhi", delhi: "delhi", ncr: "delhi",
+  pune: "pune", ahmedabad: "ahmedabad", amdavad: "ahmedabad"
+};
 
 let propCache = null;
 export async function allProperties() {

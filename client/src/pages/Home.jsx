@@ -7,6 +7,7 @@ import { useApp } from "../store.jsx";
 import PropertyCard from "../components/PropertyCard.jsx";
 import MapPanel from "../components/MapPanel.jsx";
 import GeoSearch from "../components/GeoSearch.jsx";
+import { SkeletonGrid } from "../components/Skeleton.jsx";
 
 function Counter({ target, suffix = "" }) {
   const ref = useRef();
@@ -86,11 +87,15 @@ export default function Home() {
   const [deal, setDeal] = useState("buy");
   const [featured, setFeatured] = useState([]);
   const [all, setAll] = useState([]);
+  const [loading, setLoading] = useState(true);
   const [form, setForm] = useState({ q: "", category: "", budget: "" });
   const navigate = useNavigate();
 
   useEffect(() => {
-    api.get("/properties").then(d => { setAll(d.properties); setFeatured(d.properties.slice(0, 6)); }).catch(() => {});
+    api.get("/properties")
+      .then(d => { setAll(d.properties); setFeatured(d.properties.slice(0, 6)); })
+      .catch(() => {})
+      .finally(() => setLoading(false));
   }, []);
 
   // Intelligent picks: homes in the same cities as your shortlist, not yet saved
@@ -260,9 +265,11 @@ export default function Home() {
             View all →
           </Link>
         </div>
-        <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
-          {featured.map((p, i) => <PropertyCard key={p.id} p={p} delay={i * 70} />)}
-        </div>
+        {loading ? <SkeletonGrid count={6} /> : (
+          <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
+            {featured.map((p, i) => <PropertyCard key={p.id} p={p} delay={i * 70} />)}
+          </div>
+        )}
       </Section>
 
       {/* RECENTLY VIEWED */}

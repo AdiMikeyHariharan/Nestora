@@ -7,6 +7,7 @@ import MapPanel from "../components/MapPanel.jsx";
 import CheckoutModal from "../components/CheckoutModal.jsx";
 import MortgageCalc from "../components/MortgageCalc.jsx";
 import PropertyCard from "../components/PropertyCard.jsx";
+import { CalendarIcon, MailIcon, WaIcon, HeartIcon, PinIcon } from "../components/icons.jsx";
 
 const fieldCls = "w-full rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 text-sm outline-none focus:ring-2 focus:ring-emerald-500";
 const btnBase = "flex w-full items-center justify-center gap-2 rounded-xl py-3 text-sm font-bold transition-all";
@@ -46,11 +47,7 @@ export default function Property() {
       .finally(() => setLoading(false));
   }, [id]);
 
-  if (loading) return (
-    <div className="grid min-h-[50vh] place-items-center text-slate-400">
-      <div className="text-center"><span className="spin mx-auto mb-3 block h-7 w-7 rounded-full border-[3px] border-slate-200 border-t-emerald-600" />Loading…</div>
-    </div>
-  );
+  if (loading) return <SkeletonProperty />;
   if (!p) return (
     <div className="grid min-h-[40vh] place-items-center text-center">
       <div>
@@ -77,7 +74,11 @@ export default function Property() {
     try {
       const resp = await api.post("/bookings", { property_id: p.id, date_pref: visitDate + ", " + visitTime });
       setVisitOpen(false);
-      setInvoice({ id: resp.invoice_id, amount: resp.amount, description: "Site-visit token — " + p.title });
+      if (resp.free || !resp.amount) {
+        toast("Visit confirmed — see it under My Account");
+      } else {
+        setInvoice({ id: resp.invoice_id, amount: resp.amount, description: "Site-visit token — " + p.title });
+      }
     } catch (e) { toast(e.message); }
     setBooking(false);
   };
@@ -144,27 +145,27 @@ export default function Property() {
               {fmtPrice(p.priceINR, isRent, currency)}
             </div>
             <h2 className="mt-1.5 text-xl font-extrabold">{p.title}</h2>
-            <div className="mt-1.5 text-sm text-slate-500">📍 {p.area}, {p.city} — {p.pincode}</div>
+            <div className="mt-1.5 inline-flex items-center gap-1.5 text-sm text-slate-500"><PinIcon size={14} className="text-slate-400" /> {p.area}, {p.city} — {p.pincode}</div>
 
             <div className="mt-6 flex flex-col gap-2.5">
-              <button onClick={() => setVisitOpen(true)} className={btnBase + " bg-amber-500 text-white shadow-lg shadow-amber-500/30 hover:brightness-105"}>
-                📅 Book a site visit — ₹999 token
+              <button onClick={() => setVisitOpen(true)} className={btnBase + " bg-slate-900 text-white shadow-lg shadow-slate-900/20 hover:bg-slate-800"}>
+                <CalendarIcon size={16} /> Schedule a visit
               </button>
               <button onClick={() => enquireEmail(p)} className={btnBase + " bg-gradient-to-r from-emerald-600 to-teal-500 text-white shadow-lg shadow-emerald-600/25 hover:brightness-110"}>
-                ✉ Interested? Enquire by email
+                <MailIcon size={16} /> Request details
               </button>
               <a
                 href={waLink(`Hi Nestora! I'm interested in "${p.title}" (${p.id}) in ${p.area}, ${p.city}. Please share details / book a visit.`)}
                 target="_blank" rel="noreferrer"
-                className={btnBase + " bg-[#25d366] text-white shadow-lg shadow-green-500/25 hover:brightness-105"}
-              >🟢 WhatsApp us</a>
+                className={btnBase + " border border-slate-200 text-slate-700 hover:border-[#25d366] hover:text-[#128c4a]"}
+              ><WaIcon size={17} /> Chat on WhatsApp</a>
               <button
                 onClick={() => toggleShortlist(p.id)}
-                className={btnBase + ` border ${saved ? "border-rose-300 bg-rose-50 text-rose-600" : "border-slate-200 text-slate-600 hover:border-emerald-400 hover:text-emerald-700"}`}
-              >{saved ? "♥ Shortlisted" : "♡ Add to shortlist"}</button>
+                className={btnBase + ` border ${saved ? "border-rose-200 bg-rose-50 text-rose-600" : "border-slate-200 text-slate-600 hover:border-emerald-400 hover:text-emerald-700"}`}
+              ><HeartIcon filled={saved} size={16} /> {saved ? "Saved to shortlist" : "Save to shortlist"}</button>
             </div>
             <p className="mt-4 text-xs leading-relaxed text-slate-400">
-              The ₹999 visit token is fully refundable and confirms your slot instantly — search → shortlist → visit → invoice → pay → support, all on Nestora.
+              Site visits are free — pick a date and our advisor confirms the slot. Search, shortlist, visit and settle, all on Nestora.
             </p>
           </div>
         </motion.div>
@@ -207,9 +208,9 @@ export default function Property() {
               onClick={startBooking} disabled={booking}
               className="mt-5 flex w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-500 py-3 font-bold text-white shadow-lg shadow-emerald-600/25 hover:brightness-110 disabled:opacity-70"
             >
-              {booking ? (<><span className="spin h-4 w-4 rounded-full border-2 border-white/40 border-t-white" /> Creating booking…</>) : "Continue to pay ₹999 token"}
+              {booking ? (<><span className="spin h-4 w-4 rounded-full border-2 border-white/40 border-t-white" /> Confirming…</>) : "Confirm visit — free"}
             </button>
-            <p className="mt-3 text-center text-[11px] text-slate-400">Fully refundable. Your slot is confirmed the moment payment succeeds.</p>
+            <p className="mt-3 text-center text-[11px] text-slate-400">No charge. Our advisor confirms your preferred slot by phone.</p>
           </motion.div>
         </div>
       )}

@@ -50,7 +50,7 @@ let PropertiesController = class PropertiesController {
         if (p.minBudget)
             add("price_inr >= ?", parseInt(p.minBudget, 10));
         if (p.beds)
-            add("beds = ?", parseInt(p.beds, 10));
+            add("beds = ?", parseFloat(p.beds));
         if (p.furnishing)
             add("furnishing = ?", p.furnishing);
         const { rows } = await this.db.q(`SELECT * FROM properties ${where.length ? "WHERE " + where.join(" AND ") : ""} ORDER BY created_at DESC`, params);
@@ -97,7 +97,7 @@ let PropertiesController = class PropertiesController {
         }
         await this.db.q(`INSERT INTO properties (id,title,type,category,city,area,pincode,price_inr,beds,baths,sqft,description,img,photos,video,posted_by,role,lat,lng,furnishing)
       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,${["unfurnished", "semi", "furnished"].includes(body.furnishing) ? "'" + body.furnishing + "'" : "'unfurnished'"})`, [id, body.title, body.type, body.category, body.city, body.area, body.pincode,
-            parseInt(body.priceINR, 10), parseInt(body.beds, 10), parseInt(body.baths, 10), parseInt(body.sqft, 10),
+            parseInt(body.priceINR, 10), parseFloat(body.beds), parseInt(body.baths, 10), parseInt(body.sqft, 10),
             body.desc, body.img || body.photos?.[0] || `https://picsum.photos/seed/${id}/800/500`,
             JSON.stringify(body.photos || []), body.video || null, user.email, body.role || user.role, lat, lng]);
         return { id };

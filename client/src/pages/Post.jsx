@@ -43,7 +43,7 @@ export default function Post() {
       const { id } = await api.post("/properties", {
         title: form.title, type: form.type, category: form.category,
         city: form.city, area: form.area, pincode: form.pincode,
-        priceINR: parseInt(form.price, 10), beds: parseInt(form.beds, 10),
+        priceINR: parseInt(form.price, 10), beds: parseFloat(form.beds),
         baths: parseInt(form.baths, 10), sqft: parseInt(form.sqft, 10),
         desc: form.desc, photos, video, role: form.role
       });
@@ -110,7 +110,7 @@ export default function Post() {
               <input className={fieldCls + " mt-1.5"} type="number" min="1" required value={form.sqft} onChange={e => set("sqft", e.target.value)} placeholder="e.g. 1200" />
             </label>
             <label className={lbl}>Bedrooms
-              <select className={fieldCls + " mt-1.5"} value={form.beds} onChange={e => set("beds", e.target.value)}>{[1, 2, 3, 4, 5].map(n => <option key={n}>{n}</option>)}</select>
+              <select className={fieldCls + " mt-1.5"} value={form.beds} onChange={e => set("beds", e.target.value)}>{["1", "1.5", "2", "2.5", "3", "4", "5"].map(n => <option key={n} value={n}>{n} BHK</option>)}</select>
             </label>
             <label className={lbl}>Bathrooms
               <select className={fieldCls + " mt-1.5"} value={form.baths} onChange={e => set("baths", e.target.value)}>{[1, 2, 3, 4].map(n => <option key={n}>{n}</option>)}</select>

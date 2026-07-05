@@ -4,6 +4,7 @@ import { api } from "../api.js";
 import PropertyCard from "../components/PropertyCard.jsx";
 import MapPanel from "../components/MapPanel.jsx";
 import GeoSearch from "../components/GeoSearch.jsx";
+import { SkeletonGrid } from "../components/Skeleton.jsx";
 
 const fieldCls = "w-full rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 text-sm outline-none focus:ring-2 focus:ring-emerald-500";
 const lbl = "block text-[11px] font-bold uppercase tracking-wide text-slate-500";
@@ -59,6 +60,26 @@ export default function Listings() {
     p.set("radius", "10");
     p.set("lname", lm.name);
     setParams(p);
+  };
+
+  // Saved searches (99acres-style), stored locally
+  const [savedSearches, setSavedSearches] = useState(() => {
+    try { return JSON.parse(localStorage.getItem("nst_saved_searches") || "[]"); } catch { return []; }
+  });
+  const persistSearches = next => {
+    setSavedSearches(next);
+    localStorage.setItem("nst_saved_searches", JSON.stringify(next));
+  };
+  const saveSearch = () => {
+    const qs = params.toString();
+    if (!qs) return;
+    const bits = [params.get("beds") && params.get("beds") + " BHK", params.get("type"),
+      params.get("q") || (landmarkName && "near " + landmarkName.split(",")[0]),
+      params.get("furnishing"), params.get("budget") && "≤₹" + (+params.get("budget")).toLocaleString("en-IN")
+    ].filter(Boolean);
+    const name = bits.join(" · ") || "All properties";
+    if (savedSearches.some(s => s.qs === qs)) return;
+    persistSearches([{ name, qs }, ...savedSearches].slice(0, 6));
   };
 
   const sorted = [...list];
@@ -119,7 +140,7 @@ export default function Listings() {
           {/* BHK quick filters (99acres-style facet chips) */}
           <div className="mt-4 flex flex-wrap items-center gap-2">
             <span className="text-xs font-bold uppercase tracking-wide text-slate-400">Bedrooms:</span>
-            {["", "1", "2", "3", "4"].map(b => {
+            {["", "1", "1.5", "2", "2.5", "3", "4"].map(b => {
               const active = (params.get("beds") || "") === b;
               return (
                 <button
@@ -153,9 +174,23 @@ export default function Listings() {
         </form>
 
         <div className="mb-5 mt-7 flex flex-wrap items-center justify-between gap-3">
-          <p className="font-bold text-slate-700">
-            {loading ? "Searching…" : `${list.length} propert${list.length === 1 ? "y" : "ies"} found${near ? " · sorted by distance" : ""}`}
-          </p>
+          <div className="flex flex-wrap items-center gap-3">
+            <p className="font-bold text-slate-700">
+              {loading ? "Searching…" : `${list.length} propert${list.length === 1 ? "y" : "ies"} found${near ? " · sorted by distance" : ""}`}
+            </p>
+            {params.toString() && (
+              <button
+                onClick={saveSearch}
+                className="rounded-full border border-emerald-300 bg-emerald-50 px-3.5 py-1 text-xs font-bold text-emerald-700 hover:bg-emerald-100"
+              >＋ Save search</button>
+            )}
+            {savedSearches.map(s => (
+              <span key={s.qs} className="inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-semibold text-slate-600">
+                <button onClick={() => setParams(new URLSearchParams(s.qs))} className="hover:text-emerald-700">{s.name}</button>
+                <button aria-label="Remove saved search" onClick={() => persistSearches(savedSearches.filter(x => x.qs !== s.qs))} className="text-slate-400 hover:text-rose-500">×</button>
+              </span>
+            ))}
+          </div>
           <select
             value={sort} onChange={e => setSort(e.target.value)}
             className="cursor-pointer rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-bold text-slate-600 outline-none focus:ring-2 focus:ring-emerald-500"
@@ -169,10 +204,7 @@ export default function Listings() {
         <div className="grid items-start gap-6 lg:grid-cols-[1.15fr_1fr]">
           <div>
             {loading ? (
-              <div className="grid place-items-center py-20 text-slate-400">
-                <span className="spin mb-3 h-7 w-7 rounded-full border-[3px] border-slate-200 border-t-emerald-600" />
-                Loading properties…
-              </div>
+              <SkeletonGrid count={6} />
             ) : sorted.length ? (
               <div className="grid gap-5 sm:grid-cols-2">
                 {sorted.map((p, i) => <PropertyCard key={p.id} p={p} delay={Math.min(i, 6) * 60} />)}

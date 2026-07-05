@@ -35,7 +35,31 @@ export default function ChatWidget() {
   });
   const cards = list => ({ who: "bot", cards: list.slice(0, 3) });
 
+  // LLM-first: ask the Claude-backed endpoint; fall back to the rule-based
+  // engine when ANTHROPIC_API_KEY isn't configured (HTTP 501) or errors.
+  const history = useRef([]);
   async function botReply(userText) {
+    history.current.push({ role: "user", content: userText });
+    try {
+      setTyping(true);
+      const { reply, propertyIds } = await api.post("/chat/ask", { messages: history.current });
+      history.current.push({ role: "assistant", content: reply });
+      setTyping(false);
+      push({ who: "bot", text: reply });
+      if (propertyIds?.length) {
+        const all = await allProps().catch(() => []);
+        const cardsList = propertyIds.map(id => all.find(p => p.id === id)).filter(Boolean);
+        if (cardsList.length) push(cards(cardsList));
+      }
+      return;
+    } catch (e) {
+      setTyping(false);
+      if (!/not configured/.test(e.message)) { /* real API error → still fall back */ }
+    }
+    await ruleBasedReply(userText);
+  }
+
+  async function ruleBasedReply(userText) {
     const t = userText.toLowerCase();
 
     if (t.includes("whatsapp")) {
@@ -47,8 +71,8 @@ export default function ChatWidget() {
       await reply({
         who: "bot",
         text: user
-          ? `Great, ${user.name.split(" ")[0]}! Open any property and tap "Book a site visit" — pay the refundable ₹999 token and your slot is confirmed instantly.`
-          : 'Happy to set that up! Login first (one-time signup with email OTP), then open any property and tap "Book a site visit".',
+          ? `Certainly, ${user.name.split(" ")[0]}. Open any property and select "Schedule a visit" — it's free, and our advisor confirms your slot by phone.`
+          : 'To schedule a visit, please sign in first (one-time signup with email verification), then select "Schedule a visit" on any property. Visits are free.',
         link: { to: user ? "/listings" : "/login", label: user ? "Browse properties →" : "Login / Sign up →" }
       });
       return;

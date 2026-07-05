@@ -62,12 +62,17 @@ let DbService = class DbService {
       CREATE TABLE IF NOT EXISTS properties (
         id TEXT PRIMARY KEY, title TEXT, type TEXT, category TEXT,
         city TEXT, area TEXT, pincode TEXT, price_inr BIGINT,
-        beds INT, baths INT, sqft INT, description TEXT,
+        beds REAL, baths INT, sqft INT, description TEXT,
         img TEXT, photos JSONB DEFAULT '[]', video TEXT,
         posted_by TEXT, role TEXT, lat DOUBLE PRECISION, lng DOUBLE PRECISION,
         created_at TIMESTAMPTZ DEFAULT now()
       );
       ALTER TABLE properties ADD COLUMN IF NOT EXISTS furnishing TEXT DEFAULT 'unfurnished';
+      DO $$ BEGIN
+        IF (SELECT data_type FROM information_schema.columns WHERE table_name='properties' AND column_name='beds') = 'integer' THEN
+          ALTER TABLE properties ALTER COLUMN beds TYPE REAL;
+        END IF;
+      END $$;
       CREATE TABLE IF NOT EXISTS shortlist (email TEXT, property_id TEXT, PRIMARY KEY (email, property_id));
       CREATE TABLE IF NOT EXISTS bookings (
         id TEXT PRIMARY KEY, email TEXT, property_id TEXT, date_pref TEXT,
@@ -101,7 +106,9 @@ let DbService = class DbService {
             ["nst-109", "Riverside 2 BHK Flat", "buy", "new", "Ahmedabad", "Vastrapur", "380015", 8900000, 2, 2, 1250, "Bright 2 BHK overlooking the lake, with vaastu-compliant layout, clubhouse and landscaped gardens.", 23.0396, 72.5290],
             ["nst-110", "2 BHK near Adyar Signal", "buy", "resale", "Chennai", "Adyar", "600020", 11500000, 2, 2, 1050, "Bright corner-unit 2 BHK a short walk from Adyar's restaurant strip, parks and the beach road. Covered parking included.", 13.0067, 80.2570],
             ["nst-111", "3 BHK Garden Apartment", "rent", "new", "Chennai", "Besant Nagar", "600090", 55000, 3, 3, 1500, "Airy 3 BHK near Elliot's Beach with gym, play area and two balconies. Ideal family neighbourhood.", 13.0002, 80.2668],
-            ["nst-112", "Compact 1 BHK in Indiranagar", "rent", "resale", "Bengaluru", "Indiranagar", "560038", 30000, 1, 1, 700, "Fully furnished 1 BHK just off 100 Feet Road — cafes, breweries and the metro at your doorstep.", 12.9719, 77.6412]
+            ["nst-112", "Compact 1 BHK in Indiranagar", "rent", "resale", "Bengaluru", "Indiranagar", "560038", 30000, 1, 1, 700, "Fully furnished 1 BHK just off 100 Feet Road — cafes, breweries and the metro at your doorstep.", 12.9719, 77.6412],
+            ["nst-113", "1.5 BHK with Study Nook", "rent", "new", "Pune", "Baner", "411045", 34000, 1.5, 1, 780, "Smart 1.5 BHK with a dedicated study/WFH nook, ideal for professionals. Gym, cafe and IT parks minutes away.", 18.5590, 73.7868],
+            ["nst-114", "2.5 BHK Corner Residence", "buy", "new", "Bengaluru", "Hebbal", "560024", 16800000, 2.5, 3, 1480, "Spacious 2.5 BHK corner unit — the half room works as a nursery, study or guest space. Lake and airport road nearby.", 13.0358, 77.5970]
         ];
         const photos = {
             "nst-101": "1600596542815-ffad4c1539a9", "nst-102": "1512917774080-9991f1c4c750",
