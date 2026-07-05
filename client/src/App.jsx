@@ -14,9 +14,10 @@ import Account from "./pages/Account.jsx";
 export function Logo({ dark }) {
   return (
     <Link to="/" className="group flex items-center gap-2.5">
-      <span className="grid h-9 w-9 place-items-center rounded-xl bg-gradient-to-br from-emerald-600 to-teal-400 text-lg font-extrabold text-white shadow-lg shadow-emerald-600/30 transition-transform group-hover:rotate-6">
-        N
-      </span>
+      <img
+        src="/logo.png" alt="Nestora Properties"
+        className={`h-10 w-10 shrink-0 object-contain transition-transform group-hover:scale-105 ${dark ? "rounded-lg bg-white p-0.5" : ""}`}
+      />
       <span className={`text-xl font-extrabold tracking-tight ${dark ? "text-white" : "text-slate-900"}`}>
         Nestora
         <span className={`ml-0.5 hidden text-[10px] font-bold tracking-[0.18em] sm:inline ${dark ? "text-emerald-300" : "text-emerald-600"}`}> · FIND YOUR NEST</span>
