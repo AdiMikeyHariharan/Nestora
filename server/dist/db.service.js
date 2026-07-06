@@ -49,8 +49,8 @@ const resend_1 = require("resend");
 let DbService = class DbService {
     pool = new pg_1.Pool({
         connectionString: process.env.DATABASE_URL || "postgresql://localhost:5433/nestora",
-        // Supabase requires SSL; local Postgres doesn't.
-        ssl: process.env.DATABASE_URL?.includes("supabase") ? { rejectUnauthorized: false } : undefined
+        // Hosted Postgres (Supabase, Neon, etc) require SSL; local doesn't.
+        ssl: (process.env.DATABASE_URL && !process.env.DATABASE_URL.includes("localhost")) ? { rejectUnauthorized: false } : undefined
     });
     q(text, params) { return this.pool.query(text, params); }
     async onModuleInit() {

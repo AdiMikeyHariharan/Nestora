@@ -3,8 +3,14 @@ import { DbService } from "./db.service";
 import * as crypto from "node:crypto";
 
 const err = (code: number, msg: string) => new HttpException({ error: msg }, code);
-const PUBLIC_URL = process.env.PUBLIC_URL || "http://localhost:" + (process.env.PORT || 4173);
-
+const getPublicUrl = (req?: any) => {
+  if (process.env.PUBLIC_URL) return process.env.PUBLIC_URL;
+  if (req) {
+    const proto = req.headers["x-forwarded-proto"] || req.protocol || "http";
+    return `${proto}://${req.get("host")}`;
+  }
+  return "http://localhost:" + (process.env.PORT || 4173);
+};
 @Controller("auth")
 export class AuthController {
   constructor(private db: DbService) {}
@@ -72,19 +78,21 @@ export class AuthController {
   }
 
   @Get("google")
-  googleStart(@Res() res: any) {
+  googleStart(@Req() req: any, @Res() res: any) {
     if (!process.env.GOOGLE_CLIENT_ID)
       return res.status(501).json({ error: "Google SSO not configured — set GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET" });
+    const pubUrl = getPublicUrl(req);
     const url = "https://accounts.google.com/o/oauth2/v2/auth?" + new URLSearchParams({
       client_id: process.env.GOOGLE_CLIENT_ID,
-      redirect_uri: PUBLIC_URL + "/api/auth/google/callback",
+      redirect_uri: pubUrl + "/api/auth/google/callback",
       response_type: "code", scope: "openid email profile", prompt: "select_account"
     });
     res.redirect(url);
   }
 
   @Get("google/callback")
-  async googleCallback(@Query("code") code: string, @Res() res: any) {
+  async googleCallback(@Req() req: any, @Query("code") code: string, @Res() res: any) {
+    const pubUrl = getPublicUrl(req);
     try {
       const tokenResp = await fetch("https://oauth2.googleapis.com/token", {
         method: "POST",
@@ -93,7 +101,7 @@ export class AuthController {
           code, grant_type: "authorization_code",
           client_id: process.env.GOOGLE_CLIENT_ID || "",
           client_secret: process.env.GOOGLE_CLIENT_SECRET || "",
-          redirect_uri: PUBLIC_URL + "/api/auth/google/callback"
+          redirect_uri: pubUrl + "/api/auth/google/callback"
         })
       });
       const { access_token } = await tokenResp.json() as any;
@@ -110,7 +118,7 @@ export class AuthController {
         await this.db.q("UPDATE users SET verified = TRUE WHERE email = $1", [em]);
         const token = await this.db.createSession(em);
         const user = Buffer.from(JSON.stringify(this.db.publicUser(u))).toString("base64url");
-        return res.redirect(PUBLIC_URL + `/login?sso=${token}&u=${user}`);
+        return res.redirect(pubUrl + `/login?sso=${token}&u=${user}`);
       }
       
       // If user doesn't exist, register them with NULL password first
@@ -124,10 +132,10 @@ export class AuthController {
       await this.db.q("INSERT INTO sessions (token, email) VALUES ($1, $2)", [tempToken, em]);
       
       const name = u ? u.name : (info.name || em);
-      res.redirect(PUBLIC_URL + `/login?google_sso=1&temp_token=${tempToken}&email=${em}&name=${encodeURIComponent(name)}&has_password=false`);
+      res.redirect(pubUrl + `/login?google_sso=1&temp_token=${tempToken}&email=${em}&name=${encodeURIComponent(name)}&has_password=false`);
     } catch (e) {
       console.error("Google SSO Callback error:", e);
-      res.redirect(PUBLIC_URL + "/login?sso_error=" + encodeURIComponent("Google sign-in failed — try again"));
+      res.redirect(pubUrl + "/login?sso_error=" + encodeURIComponent("Google sign-in failed — try again"));
     }
   }
 
