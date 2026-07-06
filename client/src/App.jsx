@@ -111,8 +111,8 @@ function Footer() {
             <a href={waLink("Hi Nestora!")} target="_blank" rel="noreferrer" className="flex items-center gap-2.5 py-1.5 text-sm text-slate-400 hover:text-white">
               <WaIcon size={17} className="shrink-0 text-[#25d366]" /> WhatsApp
             </a>
-            <a href="tel:+919000000000" className="flex items-center gap-2.5 py-1.5 text-sm text-slate-400 hover:text-white">
-              <PhoneIcon size={17} className="shrink-0 text-slate-500" /> +91 90000 00000
+            <a href="tel:+917795588955" className="flex items-center gap-2.5 py-1.5 text-sm text-slate-400 hover:text-white">
+              <PhoneIcon size={17} className="shrink-0 text-slate-500" /> +91 77955 88955
             </a>
           </div>
         </div>
