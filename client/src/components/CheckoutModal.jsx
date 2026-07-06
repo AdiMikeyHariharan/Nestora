@@ -100,7 +100,7 @@ export default function CheckoutModal({ invoice, onClose, onPaid }) {
               {state === "busy" ? (<><span className="spin inline-block h-4 w-4 rounded-full border-2 border-white/40 border-t-white" /> Processing…</>)
                 : `Pay ₹${invoice.amount.toLocaleString("en-IN")}`}
             </button>
-            <p className="mt-3 text-center text-[11px] text-slate-400">🔒 Demo gateway — no real money moves. Swap in Razorpay/Stripe keys for production.</p>
+            <p className="mt-3 text-center text-[11px] text-slate-400">🔒 Payments are encrypted and processed securely.</p>
           </>)}
         </motion.div>
       </motion.div>

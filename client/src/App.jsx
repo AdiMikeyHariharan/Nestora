@@ -3,7 +3,7 @@ import { useEffect, useState } from "react";
 import { useApp } from "./store.jsx";
 import { NESTORA, waLink } from "./api.js";
 import ChatWidget from "./components/ChatWidget.jsx";
-import { WaIcon } from "./components/icons.jsx";
+import { WaIcon, MailIcon, PhoneIcon } from "./components/icons.jsx";
 import Home from "./pages/Home.jsx";
 import Listings from "./pages/Listings.jsx";
 import Property from "./pages/Property.jsx";
@@ -105,13 +105,19 @@ function Footer() {
           ))}
           <div>
             <h4 className="mb-3 text-sm font-bold text-white">Reach us</h4>
-            <a href={`mailto:${NESTORA.email}`} className="block py-1 text-sm text-slate-400 hover:text-white">✉ {NESTORA.email}</a>
-            <a href={waLink("Hi Nestora!")} target="_blank" rel="noreferrer" className="block py-1 text-sm text-slate-400 hover:text-white">🟢 WhatsApp</a>
-            <a href="tel:+919000000000" className="block py-1 text-sm text-slate-400 hover:text-white">📞 +91 90000 00000</a>
+            <a href={`mailto:${NESTORA.email}`} className="flex items-center gap-2.5 py-1.5 text-sm text-slate-400 hover:text-white">
+              <MailIcon size={17} className="shrink-0 text-slate-500" /> {NESTORA.email}
+            </a>
+            <a href={waLink("Hi Nestora!")} target="_blank" rel="noreferrer" className="flex items-center gap-2.5 py-1.5 text-sm text-slate-400 hover:text-white">
+              <WaIcon size={17} className="shrink-0 text-[#25d366]" /> WhatsApp
+            </a>
+            <a href="tel:+919000000000" className="flex items-center gap-2.5 py-1.5 text-sm text-slate-400 hover:text-white">
+              <PhoneIcon size={17} className="shrink-0 text-slate-500" /> +91 90000 00000
+            </a>
           </div>
         </div>
         <div className="mt-9 flex flex-wrap justify-between gap-2 border-t border-slate-800 pt-5 text-xs text-slate-500">
-          <span>© {new Date().getFullYear()} Nestora. Demo build — React · NestJS · Postgres (Supabase-ready).</span>
+          <span>© {new Date().getFullYear()} Nestora Properties. All rights reserved.</span>
           <span>Privacy · Terms · Sitemap</span>
         </div>
       </div>
