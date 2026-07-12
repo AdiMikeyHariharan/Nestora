@@ -149,9 +149,13 @@ let DbService = class DbService {
         await this.q("INSERT INTO sessions (token,email) VALUES ($1,$2)", [token, email]);
         return token;
     }
-    resend = new resend_1.Resend(process.env.RESEND_API_KEY);
+    // Only initialise Resend when a key is present; otherwise email falls back to
+    // console logging so the server still runs (local dev / unconfigured envs).
+    resend = process.env.RESEND_API_KEY ? new resend_1.Resend(process.env.RESEND_API_KEY) : null;
     async sendEmail(to, subject, text) {
         console.log(`\n=== EMAIL to ${to} ===\n${subject}\n${text}\n====================\n`);
+        if (!this.resend)
+            return;
         try {
             await this.resend.emails.send({
                 from: "Nestora <noreply@nestora.properties>",

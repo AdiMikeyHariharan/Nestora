@@ -123,8 +123,8 @@ export default function Home() {
           alt="" aria-hidden
           className="absolute inset-0 h-full w-full scale-105 object-cover"
         />
-        <div className="absolute inset-0 bg-gradient-to-r from-slate-950/95 via-slate-950/80 to-slate-950/40" />
-        <div className="absolute inset-x-0 bottom-0 h-40 bg-gradient-to-t from-slate-950/90 to-transparent" />
+        <div className="absolute inset-0 bg-gradient-to-r from-slate-950/80 via-slate-950/45 to-slate-950/10" />
+        <div className="absolute inset-x-0 bottom-0 h-40 bg-gradient-to-t from-slate-950/55 to-transparent" />
 
         <Section className="relative z-10">
           <motion.div initial={{ opacity: 0, y: 24 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.6, ease: "easeOut" }}>
@@ -136,7 +136,7 @@ export default function Home() {
               <span className="serif-accent text-shimmer font-semibold">find your nest.</span>
             </h1>
             <p className="mt-5 max-w-xl text-lg text-slate-300">
-              Just describe it — our AI understands landmarks, budgets and BHK. Shortlist, book a visit and pay online.
+              Just describe it — our AI understands landmarks, budgets and BHK. Shortlist and book a visit.
             </p>
             <AISearchBar />
             <div className="mt-8 inline-flex rounded-2xl bg-white/10 p-1.5 backdrop-blur">
@@ -225,7 +225,6 @@ export default function Home() {
             </div>
           </motion.div>
           {[["Live map view", "Every listing pinned with prices, landmark circles and radius control on an interactive map."],
-            ["Book & pay online", "Reserve site visits with a refundable ₹999 token — UPI, card or netbanking, invoice included."],
             ["Mortgage clarity", "Per-home EMI calculator with down-payment, rate and tenure sliders — know your monthly before you visit."],
             ["Owner-friendly listing", "Post with photos and video; we geocode your locality so buyers find you by landmark."]].map(([h, s], i) => (
             <motion.div
