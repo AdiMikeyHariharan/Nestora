@@ -3,6 +3,8 @@ import { useEffect, useState } from "react";
 import { useApp } from "./store.jsx";
 import { NESTORA, waLink } from "./api.js";
 import ChatWidget from "./components/ChatWidget.jsx";
+import CookieConsent from "./components/CookieConsent.jsx";
+import { trackPageView } from "./lib/analytics.js";
 import { WaIcon, MailIcon, PhoneIcon } from "./components/icons.jsx";
 import Home from "./pages/Home.jsx";
 import Listings from "./pages/Listings.jsx";
@@ -126,8 +128,9 @@ function Footer() {
 }
 
 export default function App() {
-  const { pathname } = useLocation();
+  const { pathname, search } = useLocation();
   useEffect(() => { window.scrollTo(0, 0); }, [pathname]);
+  useEffect(() => { trackPageView(pathname + search); }, [pathname, search]);
   return (
     <>
       <Header />
@@ -147,6 +150,7 @@ export default function App() {
         target="_blank" rel="noreferrer" title="WhatsApp us" aria-label="Chat on WhatsApp"
       ><WaIcon size={26} /></a>
       <ChatWidget />
+      <CookieConsent />
     </>
   );
 }

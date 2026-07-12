@@ -50,6 +50,13 @@ export class DbService implements OnModuleInit {
         id BIGSERIAL PRIMARY KEY, session TEXT, who TEXT, text TEXT, created_at TIMESTAMPTZ DEFAULT now()
       );
       CREATE INDEX IF NOT EXISTS idx_chat_session ON chat_messages (session, id);
+      CREATE TABLE IF NOT EXISTS analytics_events (
+        id BIGSERIAL PRIMARY KEY, visitor_id TEXT, session_id TEXT,
+        path TEXT, referrer TEXT, event TEXT DEFAULT 'pageview',
+        meta JSONB, created_at TIMESTAMPTZ DEFAULT now()
+      );
+      CREATE INDEX IF NOT EXISTS idx_analytics_created ON analytics_events (created_at);
+      CREATE INDEX IF NOT EXISTS idx_analytics_visitor ON analytics_events (visitor_id);
     `);
     await this.seed();
   }

@@ -144,4 +144,32 @@ When recommending homes, end with a line: PROPS:<comma-separated ids> so the UI 
       "SELECT who, text, created_at FROM chat_messages WHERE session = $1 ORDER BY id ASC LIMIT 200", [session]);
     return { messages: rows };
   }
+
+  // ---- First-party analytics (cookie-based, consent-gated on the client) ----
+  @Post("analytics/track")
+  async track(@Body() body: any) {
+    if (!body || !body.path) return { ok: false };
+    await this.db.q(
+      "INSERT INTO analytics_events (visitor_id, session_id, path, referrer, event, meta) VALUES ($1,$2,$3,$4,$5,$6)",
+      [String(body.vid || "").slice(0, 64), String(body.sid || "").slice(0, 64),
+       String(body.path).slice(0, 300), String(body.referrer || "").slice(0, 300),
+       String(body.event || "pageview").slice(0, 40), body.meta || {}]);
+    return { ok: true };
+  }
+
+  @Get("analytics/summary")
+  async analyticsSummary() {
+    const [views, visitors, top, daily] = await Promise.all([
+      this.db.q("SELECT COUNT(*)::int AS c FROM analytics_events WHERE event = 'pageview'"),
+      this.db.q("SELECT COUNT(DISTINCT visitor_id)::int AS c FROM analytics_events WHERE visitor_id <> ''"),
+      this.db.q("SELECT path, COUNT(*)::int AS views FROM analytics_events WHERE event = 'pageview' GROUP BY path ORDER BY views DESC LIMIT 10"),
+      this.db.q("SELECT to_char(created_at::date, 'YYYY-MM-DD') AS day, COUNT(*)::int AS views FROM analytics_events WHERE event = 'pageview' AND created_at > now() - interval '14 days' GROUP BY day ORDER BY day")
+    ]);
+    return {
+      totalViews: views.rows[0].c,
+      uniqueVisitors: visitors.rows[0].c,
+      topPaths: top.rows,
+      daily: daily.rows
+    };
+  }
 }
