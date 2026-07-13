@@ -72,10 +72,10 @@ export default function PropertyCard({ p, delay = 0 }) {
             to={`/property/${p.id}`}
             className="flex-1 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-500 py-2 text-center text-sm font-bold text-white shadow-md shadow-emerald-600/20 hover:brightness-110"
           >View details</Link>
-          <button
-            onClick={() => enquireEmail(p)}
+          <Link
+            to={`/property/${p.id}?chat=true`}
             className="rounded-xl border border-slate-200 px-3 py-2 text-sm font-bold text-slate-600 hover:border-emerald-400 hover:text-emerald-700"
-          >Interested?</button>
+          >Interested?</Link>
         </div>
       </div>
     </motion.article>

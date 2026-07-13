@@ -170,6 +170,33 @@ When recommending homes, end with a line: PROPS:<comma-separated ids> so the UI 
         const { rows } = await this.db.q("SELECT who, text, created_at FROM chat_messages WHERE session = $1 ORDER BY id ASC LIMIT 200", [session]);
         return { messages: rows };
     }
+    // ---- Leads (for sellers) ----
+    async leads(req) {
+        const user = await this.requireUser(req);
+        const { rows } = await this.db.q(`
+      SELECT l.*, p.title as property_title, u.phone as buyer_phone
+      FROM leads l
+      JOIN properties p ON l.property_id = p.id
+      LEFT JOIN users u ON l.buyer_email = u.email
+      WHERE l.seller_email = $1
+      ORDER BY l.created_at DESC
+    `, [user.email]);
+        return { leads: rows };
+    }
+    async updateLeadStatus(body, req, id) {
+        // We can get id from req.params manually since @Param isn't imported, but let's just use @Body
+        const user = await this.requireUser(req);
+        const leadId = req.params.id || body.id;
+        const { status } = body;
+        if (!["accepted", "rejected"].includes(status))
+            throw err(400, "Invalid status");
+        // Ensure the lead belongs to the current user
+        const { rows: [lead] } = await this.db.q("SELECT * FROM leads WHERE id = $1 AND seller_email = $2", [leadId, user.email]);
+        if (!lead)
+            throw err(404, "Lead not found or unauthorized");
+        await this.db.q("UPDATE leads SET status = $1 WHERE id = $2", [status, leadId]);
+        return { ok: true, status };
+    }
 };
 exports.AccountController = AccountController;
 __decorate([
@@ -238,6 +265,22 @@ __decorate([
     __metadata("design:paramtypes", [String]),
     __metadata("design:returntype", Promise)
 ], AccountController.prototype, "chatHistory", null);
+__decorate([
+    (0, common_1.Get)("leads"),
+    __param(0, (0, common_1.Req)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [Object]),
+    __metadata("design:returntype", Promise)
+], AccountController.prototype, "leads", null);
+__decorate([
+    (0, common_1.Post)("leads/:id/status"),
+    __param(0, (0, common_1.Body)()),
+    __param(1, (0, common_1.Req)()),
+    __param(2, (0, common_1.Query)("id")),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [Object, Object, String]),
+    __metadata("design:returntype", Promise)
+], AccountController.prototype, "updateLeadStatus", null);
 exports.AccountController = AccountController = __decorate([
     (0, common_1.Controller)(),
     __metadata("design:paramtypes", [db_service_1.DbService])

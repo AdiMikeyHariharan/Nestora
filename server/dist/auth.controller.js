@@ -50,29 +50,23 @@ const common_1 = require("@nestjs/common");
 const db_service_1 = require("./db.service");
 const crypto = __importStar(require("node:crypto"));
 const err = (code, msg) => new common_1.HttpException({ error: msg }, code);
-const getPublicUrl = (req) => {
-    if (process.env.PUBLIC_URL)
-        return process.env.PUBLIC_URL;
-    if (req) {
-        const proto = req.headers["x-forwarded-proto"] || req.protocol || "http";
-        return `${proto}://${req.get("host")}`;
-    }
-    return "http://localhost:" + (process.env.PORT || 4173);
-};
+const PUBLIC_URL = process.env.PUBLIC_URL || "http://localhost:" + (process.env.PORT || 4173);
 let AuthController = class AuthController {
     db;
     constructor(db) {
         this.db = db;
     }
     async signup(body) {
-        const { name, email, password, role } = body;
+        const { name, email, password, role, phone } = body;
         if (!name || !email || !password || password.length < 6)
             throw err(400, "Name, email and a 6+ char password are required");
+        if (!role || !["buyer/seller", "agent"].includes(role))
+            throw err(400, "Valid role is required (buyer/seller or agent)");
         const em = email.trim().toLowerCase();
         const { rows } = await this.db.q("SELECT 1 FROM users WHERE email = $1", [em]);
         if (rows.length)
             throw err(409, "Account exists — please login");
-        await this.db.q("INSERT INTO users (email,name,password,role) VALUES ($1,$2,$3,$4)", [em, name.trim(), this.db.hashPassword(password), role || "buyer"]);
+        await this.db.q("INSERT INTO users (email,name,password,role,phone) VALUES ($1,$2,$3,$4,$5)", [em, name.trim(), this.db.hashPassword(password), role, phone || null]);
         await this.db.issueOtp(em);
         return { needsOtp: true, email: em };
     }
@@ -119,19 +113,17 @@ let AuthController = class AuthController {
     ssoStatus() {
         return { google: !!process.env.GOOGLE_CLIENT_ID };
     }
-    googleStart(req, res) {
+    googleStart(res) {
         if (!process.env.GOOGLE_CLIENT_ID)
             return res.status(501).json({ error: "Google SSO not configured — set GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET" });
-        const pubUrl = getPublicUrl(req);
         const url = "https://accounts.google.com/o/oauth2/v2/auth?" + new URLSearchParams({
             client_id: process.env.GOOGLE_CLIENT_ID,
-            redirect_uri: pubUrl + "/api/auth/google/callback",
+            redirect_uri: PUBLIC_URL + "/api/auth/google/callback",
             response_type: "code", scope: "openid email profile", prompt: "select_account"
         });
         res.redirect(url);
     }
-    async googleCallback(req, code, res) {
-        const pubUrl = getPublicUrl(req);
+    async googleCallback(code, res) {
         try {
             const tokenResp = await fetch("https://oauth2.googleapis.com/token", {
                 method: "POST",
@@ -140,7 +132,7 @@ let AuthController = class AuthController {
                     code, grant_type: "authorization_code",
                     client_id: process.env.GOOGLE_CLIENT_ID || "",
                     client_secret: process.env.GOOGLE_CLIENT_SECRET || "",
-                    redirect_uri: pubUrl + "/api/auth/google/callback"
+                    redirect_uri: PUBLIC_URL + "/api/auth/google/callback"
                 })
             });
             const { access_token } = await tokenResp.json();
@@ -155,7 +147,7 @@ let AuthController = class AuthController {
                 await this.db.q("UPDATE users SET verified = TRUE WHERE email = $1", [em]);
                 const token = await this.db.createSession(em);
                 const user = Buffer.from(JSON.stringify(this.db.publicUser(u))).toString("base64url");
-                return res.redirect(pubUrl + `/login?sso=${token}&u=${user}`);
+                return res.redirect(PUBLIC_URL + `/login?sso=${token}&u=${user}`);
             }
             // If user doesn't exist, register them with NULL password first
             if (!u) {
@@ -165,11 +157,11 @@ let AuthController = class AuthController {
             const tempToken = "google-temp-" + crypto.randomBytes(24).toString("hex");
             await this.db.q("INSERT INTO sessions (token, email) VALUES ($1, $2)", [tempToken, em]);
             const name = u ? u.name : (info.name || em);
-            res.redirect(pubUrl + `/login?google_sso=1&temp_token=${tempToken}&email=${em}&name=${encodeURIComponent(name)}&has_password=false`);
+            res.redirect(PUBLIC_URL + `/login?google_sso=1&temp_token=${tempToken}&email=${em}&name=${encodeURIComponent(name)}&has_password=false`);
         }
         catch (e) {
             console.error("Google SSO Callback error:", e);
-            res.redirect(pubUrl + "/login?sso_error=" + encodeURIComponent("Google sign-in failed — try again"));
+            res.redirect(PUBLIC_URL + "/login?sso_error=" + encodeURIComponent("Google sign-in failed — try again"));
         }
     }
     async googleConfirm(body) {
@@ -198,7 +190,13 @@ let AuthController = class AuthController {
             if (!password || password.length < 6) {
                 throw err(400, "Password must be at least 6 characters");
             }
-            await this.db.q("UPDATE users SET password = $1 WHERE email = $2", [this.db.hashPassword(password), em]);
+            const role = body.role || "buyer/seller";
+            if (!["buyer/seller", "agent"].includes(role))
+                throw err(400, "Valid role is required");
+            const phone = body.phone || null;
+            await this.db.q("UPDATE users SET password = $1, role = $2, phone = $3 WHERE email = $4", [this.db.hashPassword(password), role, phone, em]);
+            u.role = role;
+            u.phone = phone;
         }
         // Create a permanent session token
         const token = await this.db.createSession(em);
@@ -254,19 +252,17 @@ __decorate([
 ], AuthController.prototype, "ssoStatus", null);
 __decorate([
     (0, common_1.Get)("google"),
-    __param(0, (0, common_1.Req)()),
-    __param(1, (0, common_1.Res)()),
+    __param(0, (0, common_1.Res)()),
     __metadata("design:type", Function),
-    __metadata("design:paramtypes", [Object, Object]),
+    __metadata("design:paramtypes", [Object]),
     __metadata("design:returntype", void 0)
 ], AuthController.prototype, "googleStart", null);
 __decorate([
     (0, common_1.Get)("google/callback"),
-    __param(0, (0, common_1.Req)()),
-    __param(1, (0, common_1.Query)("code")),
-    __param(2, (0, common_1.Res)()),
+    __param(0, (0, common_1.Query)("code")),
+    __param(1, (0, common_1.Res)()),
     __metadata("design:type", Function),
-    __metadata("design:paramtypes", [Object, String, Object]),
+    __metadata("design:paramtypes", [String, Object]),
     __metadata("design:returntype", Promise)
 ], AuthController.prototype, "googleCallback", null);
 __decorate([

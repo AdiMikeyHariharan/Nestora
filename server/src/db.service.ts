@@ -9,8 +9,8 @@ import { Resend } from "resend";
 export class DbService implements OnModuleInit {
   pool = new Pool({
     connectionString: process.env.DATABASE_URL || "postgresql://localhost:5433/nestora",
-    // Hosted Postgres (Supabase, Neon, etc) require SSL; local doesn't.
-    ssl: (process.env.DATABASE_URL && !process.env.DATABASE_URL.includes("localhost")) ? { rejectUnauthorized: false } : undefined
+    // Supabase requires SSL; local Postgres doesn't.
+    ssl: process.env.DATABASE_URL?.includes("supabase") ? { rejectUnauthorized: false } : undefined
   });
 
   q(text: string, params?: any[]) { return this.pool.query(text, params); }
@@ -18,7 +18,7 @@ export class DbService implements OnModuleInit {
   async onModuleInit() {
     await this.q(`
       CREATE TABLE IF NOT EXISTS users (
-        email TEXT PRIMARY KEY, name TEXT, password TEXT, role TEXT,
+        email TEXT PRIMARY KEY, name TEXT, password TEXT, role TEXT, phone TEXT,
         verified BOOLEAN DEFAULT FALSE, otp TEXT, otp_expires BIGINT, created_at TIMESTAMPTZ DEFAULT now()
       );
       CREATE TABLE IF NOT EXISTS sessions (token TEXT PRIMARY KEY, email TEXT, created_at TIMESTAMPTZ DEFAULT now());
@@ -50,6 +50,19 @@ export class DbService implements OnModuleInit {
         id BIGSERIAL PRIMARY KEY, session TEXT, who TEXT, text TEXT, created_at TIMESTAMPTZ DEFAULT now()
       );
       CREATE INDEX IF NOT EXISTS idx_chat_session ON chat_messages (session, id);
+      
+      ALTER TABLE users ADD COLUMN IF NOT EXISTS phone TEXT;
+      
+      CREATE TABLE IF NOT EXISTS leads (
+        id TEXT PRIMARY KEY,
+        property_id TEXT,
+        buyer_email TEXT,
+        seller_email TEXT,
+        chat_summary TEXT,
+        confidence_rating INT,
+        status TEXT DEFAULT 'pending',
+        created_at TIMESTAMPTZ DEFAULT now()
+      );
     `);
     await this.seed();
   }
@@ -152,7 +165,7 @@ export class DbService implements OnModuleInit {
     return otp;
   }
 
-  publicUser(u: any) { return { name: u.name, email: u.email, role: u.role, verified: !!u.verified }; }
+  publicUser(u: any) { return { name: u.name, email: u.email, role: u.role, phone: u.phone, verified: !!u.verified }; }
 
   toApiProp(row: any) {
     const { price_inr, description, posted_by, created_at, ...rest } = row;

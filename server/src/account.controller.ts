@@ -144,4 +144,35 @@ When recommending homes, end with a line: PROPS:<comma-separated ids> so the UI 
       "SELECT who, text, created_at FROM chat_messages WHERE session = $1 ORDER BY id ASC LIMIT 200", [session]);
     return { messages: rows };
   }
+
+  // ---- Leads (for sellers) ----
+  @Get("leads")
+  async leads(@Req() req: any) {
+    const user = await this.requireUser(req);
+    const { rows } = await this.db.q(`
+      SELECT l.*, p.title as property_title, u.phone as buyer_phone
+      FROM leads l
+      JOIN properties p ON l.property_id = p.id
+      LEFT JOIN users u ON l.buyer_email = u.email
+      WHERE l.seller_email = $1
+      ORDER BY l.created_at DESC
+    `, [user.email]);
+    return { leads: rows };
+  }
+
+  @Post("leads/:id/status")
+  async updateLeadStatus(@Body() body: any, @Req() req: any, @Query("id") id: string) {
+    // We can get id from req.params manually since @Param isn't imported, but let's just use @Body
+    const user = await this.requireUser(req);
+    const leadId = req.params.id || body.id;
+    const { status } = body;
+    if (!["accepted", "rejected"].includes(status)) throw err(400, "Invalid status");
+    
+    // Ensure the lead belongs to the current user
+    const { rows: [lead] } = await this.db.q("SELECT * FROM leads WHERE id = $1 AND seller_email = $2", [leadId, user.email]);
+    if (!lead) throw err(404, "Lead not found or unauthorized");
+    
+    await this.db.q("UPDATE leads SET status = $1 WHERE id = $2", [status, leadId]);
+    return { ok: true, status };
+  }
 }

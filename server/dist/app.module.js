@@ -11,6 +11,7 @@ const common_1 = require("@nestjs/common");
 const db_service_1 = require("./db.service");
 const geo_service_1 = require("./geo.service");
 const auth_controller_1 = require("./auth.controller");
+const chatbot_controller_1 = require("./chatbot.controller");
 const properties_controller_1 = require("./properties.controller");
 const account_controller_1 = require("./account.controller");
 let AppModule = class AppModule {
@@ -18,7 +19,7 @@ let AppModule = class AppModule {
 exports.AppModule = AppModule;
 exports.AppModule = AppModule = __decorate([
     (0, common_1.Module)({
-        controllers: [auth_controller_1.AuthController, auth_controller_1.MeController, properties_controller_1.PropertiesController, account_controller_1.AccountController],
+        controllers: [properties_controller_1.PropertiesController, account_controller_1.AccountController, auth_controller_1.AuthController, auth_controller_1.MeController, chatbot_controller_1.ChatbotController],
         providers: [db_service_1.DbService, geo_service_1.GeoService]
     })
 ], AppModule);

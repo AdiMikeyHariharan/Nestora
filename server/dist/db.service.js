@@ -49,14 +49,14 @@ const resend_1 = require("resend");
 let DbService = class DbService {
     pool = new pg_1.Pool({
         connectionString: process.env.DATABASE_URL || "postgresql://localhost:5433/nestora",
-        // Hosted Postgres (Supabase, Neon, etc) require SSL; local doesn't.
-        ssl: (process.env.DATABASE_URL && !process.env.DATABASE_URL.includes("localhost")) ? { rejectUnauthorized: false } : undefined
+        // Supabase requires SSL; local Postgres doesn't.
+        ssl: process.env.DATABASE_URL?.includes("supabase") ? { rejectUnauthorized: false } : undefined
     });
     q(text, params) { return this.pool.query(text, params); }
     async onModuleInit() {
         await this.q(`
       CREATE TABLE IF NOT EXISTS users (
-        email TEXT PRIMARY KEY, name TEXT, password TEXT, role TEXT,
+        email TEXT PRIMARY KEY, name TEXT, password TEXT, role TEXT, phone TEXT,
         verified BOOLEAN DEFAULT FALSE, otp TEXT, otp_expires BIGINT, created_at TIMESTAMPTZ DEFAULT now()
       );
       CREATE TABLE IF NOT EXISTS sessions (token TEXT PRIMARY KEY, email TEXT, created_at TIMESTAMPTZ DEFAULT now());
@@ -88,6 +88,19 @@ let DbService = class DbService {
         id BIGSERIAL PRIMARY KEY, session TEXT, who TEXT, text TEXT, created_at TIMESTAMPTZ DEFAULT now()
       );
       CREATE INDEX IF NOT EXISTS idx_chat_session ON chat_messages (session, id);
+      
+      ALTER TABLE users ADD COLUMN IF NOT EXISTS phone TEXT;
+      
+      CREATE TABLE IF NOT EXISTS leads (
+        id TEXT PRIMARY KEY,
+        property_id TEXT,
+        buyer_email TEXT,
+        seller_email TEXT,
+        chat_summary TEXT,
+        confidence_rating INT,
+        status TEXT DEFAULT 'pending',
+        created_at TIMESTAMPTZ DEFAULT now()
+      );
     `);
         await this.seed();
     }
@@ -181,7 +194,7 @@ let DbService = class DbService {
         this.sendEmail(email, "Your Nestora verification code", `Your OTP is ${otp}. It expires in 10 minutes.`);
         return otp;
     }
-    publicUser(u) { return { name: u.name, email: u.email, role: u.role, verified: !!u.verified }; }
+    publicUser(u) { return { name: u.name, email: u.email, role: u.role, phone: u.phone, verified: !!u.verified }; }
     toApiProp(row) {
         const { price_inr, description, posted_by, created_at, ...rest } = row;
         return { ...rest, priceINR: Number(price_inr), desc: description, postedBy: posted_by, createdAt: created_at };
