@@ -1,5 +1,6 @@
 // Data layer. DATABASE_URL points at local Postgres by default — swap it for
 // your Supabase project's connection string (Settings → Database) to go hosted.
+import 'dotenv/config';
 import { Injectable, OnModuleInit } from "@nestjs/common";
 import { Pool } from "pg";
 import * as crypto from "node:crypto";
@@ -129,13 +130,10 @@ export class DbService implements OnModuleInit {
     return token;
   }
 
-  // Init only when a key is present; otherwise email falls back to console
-  // logging so the server still boots (local dev / unconfigured envs).
-  resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null;
+  resend = new Resend(process.env.RESEND_API_KEY);
 
   async sendEmail(to: string, subject: string, text: string) {
     console.log(`\n=== EMAIL to ${to} ===\n${subject}\n${text}\n====================\n`);
-    if (!this.resend) return;
 
     try {
       await this.resend.emails.send({
