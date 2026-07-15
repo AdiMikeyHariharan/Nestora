@@ -7,22 +7,22 @@ const err = (code: number, msg: string) => new HttpException({ error: msg }, cod
 
 @Controller("chatbot")
 export class ChatbotController {
-  private ai: GoogleGenAI;
-  
-  constructor(private db: DbService) {
-    const apiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
-    if (!apiKey) {
-      throw new Error("Missing Gemini API key. Set GEMINI_API_KEY or GOOGLE_API_KEY in the server environment.");
-    }
+  private ai: GoogleGenAI | null = null;
 
-    this.ai = new GoogleGenAI({ apiKey });
+  constructor(private db: DbService) {
+    // Initialise only when a key is present. Throwing here would crash the whole
+    // app on boot; instead the chat endpoints return a clean 501 when unset.
+    const apiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
+    if (apiKey) this.ai = new GoogleGenAI({ apiKey });
+    else console.warn("Chatbot disabled: set GEMINI_API_KEY (or GOOGLE_API_KEY) to enable AI chat.");
   }
 
   @Post("chat")
   async chat(@Req() req: any, @Body() body: any) {
     const { propertyId, message, sessionId: providedSession } = body;
     if (!propertyId || !message) throw err(400, "propertyId and message are required");
-    
+    if (!this.ai) throw err(501, "AI chat is not configured — set GEMINI_API_KEY on the server");
+
     // Check if property exists
     const { rows: [prop] } = await this.db.q("SELECT * FROM properties WHERE id = $1", [propertyId]);
     if (!prop) throw err(404, "Property not found");
@@ -74,7 +74,7 @@ Your goal is to:
     
     try {
       const response = await this.ai.models.generateContent({
-        model: "gemma-4-31b-it",
+        model: "gemini-2.5-flash",
         contents: contents,
         config: {
           systemInstruction,
@@ -98,6 +98,7 @@ Your goal is to:
   async endChat(@Req() req: any, @Body() body: any) {
     const { propertyId, sessionId, buyerEmail } = body;
     if (!propertyId || !sessionId || !buyerEmail) throw err(400, "propertyId, sessionId, and buyerEmail are required");
+    if (!this.ai) throw err(501, "AI chat is not configured — set GEMINI_API_KEY on the server");
 
     // Get property details
     const { rows: [prop] } = await this.db.q("SELECT * FROM properties WHERE id = $1", [propertyId]);
@@ -135,7 +136,7 @@ You must respond ONLY with a valid JSON object matching this schema:
 
     try {
       const response = await this.ai.models.generateContent({
-        model: "gemma-4-31b-it",
+        model: "gemini-2.5-flash",
         contents: prompt,
         config: {
           responseMimeType: "application/json",
