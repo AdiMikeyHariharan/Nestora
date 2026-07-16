@@ -130,10 +130,13 @@ export class DbService implements OnModuleInit {
     return token;
   }
 
-  resend = new Resend(process.env.RESEND_API_KEY);
+  // Init only when a key is present; otherwise email logs to console so the
+  // server still boots (local dev / unconfigured envs).
+  resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null;
 
   async sendEmail(to: string, subject: string, text: string) {
     console.log(`\n=== EMAIL to ${to} ===\n${subject}\n${text}\n====================\n`);
+    if (!this.resend) return;
 
     try {
       await this.resend.emails.send({
