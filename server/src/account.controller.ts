@@ -100,32 +100,53 @@ export class AccountController {
     return { ok: true, gateway_ref: ref };
   }
 
-  // ---- AI chat (Claude API). Set ANTHROPIC_API_KEY to enable; the client
-  // falls back to the built-in rule-based search when this returns 501. ----
+  // ---- AI search assistant. Prefers Groq (reliable free), falls back to
+  // Anthropic if configured; returns 501 only when neither key is set, and the
+  // client then uses its built-in rule-based search. ----
   @Post("chat/ask")
   async chatAsk(@Body() body: any) {
-    const key = process.env.ANTHROPIC_API_KEY;
-    if (!key) throw err(501, "AI chat not configured — set ANTHROPIC_API_KEY");
+    const groqKey = process.env.GROQ_API_KEY;
+    const anthKey = process.env.ANTHROPIC_API_KEY;
+    if (!groqKey && !anthKey) throw err(501, "AI chat not configured — set GROQ_API_KEY");
+
     const { rows } = await this.db.q(
       "SELECT id,title,type,category,city,area,pincode,price_inr,beds,baths,sqft,furnishing FROM properties ORDER BY created_at DESC LIMIT 60");
-    const resp = await fetch("https://api.anthropic.com/v1/messages", {
-      method: "POST",
-      headers: { "x-api-key": key, "anthropic-version": "2023-06-01", "content-type": "application/json" },
-      body: JSON.stringify({
-        model: "claude-haiku-4-5-20251001",
-        max_tokens: 500,
-        system: `You are Nestora's professional real-estate assistant (India). Be concise, warm and factual — no emoji.
+    const system = `You are Nestora's professional real-estate assistant (India). Be concise, warm and factual — no emoji.
 Answer only from this live inventory (price_inr is INR; type buy=sale, rent=monthly):
 ${JSON.stringify(rows)}
-When recommending homes, end with a line: PROPS:<comma-separated ids> so the UI can render cards. If asked to book a visit, explain: open the property page and select "Schedule a visit" (refundable ₹999 token confirms the slot).`,
-        messages: (body.messages || []).slice(-12)
-      })
-    });
-    if (!resp.ok) throw err(502, "AI service unavailable");
-    const data: any = await resp.json();
-    const text = data.content?.[0]?.text || "";
+When recommending homes, end with a line: PROPS:<comma-separated ids> so the UI can render cards. To book a visit, tell them to open the property page and select "Schedule a visit".`;
+    const recent = (body.messages || []).slice(-12);
+
+    let text = "";
+    try {
+      if (groqKey) {
+        const resp = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+          method: "POST",
+          headers: { Authorization: `Bearer ${groqKey}`, "Content-Type": "application/json" },
+          body: JSON.stringify({
+            model: "llama-3.3-70b-versatile", max_tokens: 600, temperature: 0.3,
+            messages: [{ role: "system", content: system }, ...recent]
+          })
+        });
+        if (!resp.ok) throw new Error("Groq " + resp.status);
+        const d: any = await resp.json();
+        text = d.choices?.[0]?.message?.content || "";
+      } else {
+        const resp = await fetch("https://api.anthropic.com/v1/messages", {
+          method: "POST",
+          headers: { "x-api-key": anthKey, "anthropic-version": "2023-06-01", "content-type": "application/json" },
+          body: JSON.stringify({ model: "claude-haiku-4-5-20251001", max_tokens: 500, system, messages: recent })
+        });
+        if (!resp.ok) throw new Error("Anthropic " + resp.status);
+        const data: any = await resp.json();
+        text = data.content?.[0]?.text || "";
+      }
+    } catch (e) {
+      throw err(502, "AI service unavailable");
+    }
+
     const ids = (text.match(/PROPS:([\w,-]+)/)?.[1] || "").split(",").filter(Boolean);
-    return { reply: text.replace(/PROPS:[\w,-]+/g, "").trim(), propertyIds: ids };
+    return { reply: text.replace(/PROPS:\s*[\w,\- ]*/gi, "").trim(), propertyIds: ids };
   }
 
   // ---- Chatbot conversation log ----
