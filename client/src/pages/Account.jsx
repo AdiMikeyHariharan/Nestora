@@ -30,6 +30,7 @@ export default function Account() {
   const [invoices, setInvoices] = useState([]);
   const [mine, setMine] = useState([]);
   const [saved, setSaved] = useState([]);
+  const [leads, setLeads] = useState([]);
   const [payInvoice, setPayInvoice] = useState(null);
 
   // Geolocation and clustered recommendations
@@ -67,11 +68,17 @@ export default function Account() {
 
   const load = useCallback(async () => {
     try {
-      const [b, i, all] = await Promise.all([api.get("/bookings"), api.get("/invoices"), api.get("/properties")]);
+      const [b, i, all, l] = await Promise.all([
+        api.get("/bookings"), 
+        api.get("/invoices"), 
+        api.get("/properties"),
+        api.get("/leads").catch(() => ({ leads: [] }))
+      ]);
       setBookings(b.bookings);
       setInvoices(i.invoices);
       setMine(all.properties.filter(p => p.postedBy === user.email));
       setSaved(all.properties.filter(p => shortlist.includes(p.id)));
+      setLeads(l.leads || []);
     } catch (e) { toast(e.message); }
   }, [user, shortlist]); // eslint-disable-line
 
@@ -105,6 +112,14 @@ export default function Account() {
   const removeListing = async id => {
     try { await api.del("/properties/" + id); toast("Listing removed"); load(); }
     catch (e) { toast(e.message); }
+  };
+
+  const updateLeadStatus = async (id, status) => {
+    try {
+      await api.post(`/leads/${id}/status`, { status });
+      toast(`Lead ${status}`);
+      load();
+    } catch (e) { toast(e.message); }
   };
 
   return (
@@ -246,6 +261,64 @@ export default function Account() {
             <p className="mt-1 text-sm text-slate-400">Tap the ♥ on any listing to save it here.</p>
             <Link to="/listings" className="mt-4 inline-block rounded-xl bg-gradient-to-r from-emerald-600 to-teal-500 px-6 py-2.5 text-sm font-bold text-white shadow-lg shadow-emerald-600/25">Browse properties</Link>
           </div>
+        )}
+
+        {(user.role === "agent" || user.role === "buyer/seller") && mine.length > 0 && (
+          <>
+            <SectionHead eyebrow="Lead Gen" title="Property Leads" />
+            {leads.length ? (
+              <div className="space-y-4">
+                {leads.map(lead => (
+                  <div key={lead.id} className="rounded-2xl bg-white p-5 ring-1 ring-slate-200">
+                    <div className="flex flex-wrap justify-between gap-4">
+                      <div>
+                        <b className="text-[15px]">{lead.property_title}</b>
+                        <div className="mt-1 text-sm text-slate-500">
+                          Buyer: {lead.buyer_email}
+                        </div>
+                      </div>
+                      <div className="flex flex-col items-end">
+                        <span className={`rounded-full px-3 py-1.5 text-xs font-bold ${lead.status === 'accepted' ? 'bg-emerald-50 text-emerald-700' : lead.status === 'rejected' ? 'bg-rose-50 text-rose-700' : 'bg-amber-50 text-amber-700'}`}>
+                          {lead.status.toUpperCase()}
+                        </span>
+                        <div className="mt-1 flex items-center gap-1 text-xs font-bold text-slate-500">
+                          Confidence: <span className={`rounded px-1.5 py-0.5 text-white ${lead.confidence_rating >= 8 ? 'bg-emerald-500' : lead.confidence_rating >= 5 ? 'bg-amber-500' : 'bg-rose-500'}`}>{lead.confidence_rating}/10</span>
+                        </div>
+                      </div>
+                    </div>
+                    
+                    <div className="mt-3 rounded-xl bg-slate-50 p-3 text-sm text-slate-600 border border-slate-100">
+                      <strong>AI Summary:</strong> {lead.chat_summary}
+                    </div>
+
+                    <div className="mt-4 flex flex-wrap gap-2">
+                      {lead.status === "pending" && (
+                        <>
+                          <button onClick={() => updateLeadStatus(lead.id, "accepted")} className="rounded-xl bg-emerald-600 px-4 py-2 text-sm font-bold text-white shadow-md shadow-emerald-600/20 hover:bg-emerald-700">Accept Lead</button>
+                          <button onClick={() => updateLeadStatus(lead.id, "rejected")} className="rounded-xl bg-rose-50 px-4 py-2 text-sm font-bold text-rose-600 hover:bg-rose-100">Reject</button>
+                        </>
+                      )}
+                      {lead.status === "accepted" && lead.buyer_phone && (
+                        <a 
+                          href={`https://wa.me/${lead.buyer_phone.replace(/[^0-9]/g, '')}?text=Hi, I'm the owner/agent for ${lead.property_title} on Nestora. Let's discuss your requirements!`}
+                          target="_blank" rel="noreferrer"
+                          className="flex items-center gap-2 rounded-xl bg-[#25D366] px-4 py-2 text-sm font-bold text-white shadow-md shadow-[#25D366]/20 hover:brightness-105"
+                        >
+                          <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51a12.8 12.8 0 0 0-.57-.01c-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 0 1-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 0 1-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.82 9.82 0 0 1 2.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0 0 12.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 0 0 5.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 0 0-3.48-8.413Z"/></svg>
+                          Chat on WhatsApp (Premium)
+                        </a>
+                      )}
+                      {lead.status === "accepted" && !lead.buyer_phone && (
+                        <span className="rounded-xl border border-slate-200 px-4 py-2 text-sm text-slate-500">No phone provided by buyer</span>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="py-6 text-center text-slate-400">No leads generated yet. Check back later!</p>
+            )}
+          </>
         )}
 
         <SectionHead

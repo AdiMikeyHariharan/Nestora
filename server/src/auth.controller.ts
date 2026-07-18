@@ -3,28 +3,24 @@ import { DbService } from "./db.service";
 import * as crypto from "node:crypto";
 
 const err = (code: number, msg: string) => new HttpException({ error: msg }, code);
-const getPublicUrl = (req?: any) => {
-  if (process.env.PUBLIC_URL) return process.env.PUBLIC_URL;
-  if (req) {
-    const proto = req.headers["x-forwarded-proto"] || req.protocol || "http";
-    return `${proto}://${req.get("host")}`;
-  }
-  return "http://localhost:" + (process.env.PORT || 4173);
-};
+const PUBLIC_URL = process.env.PUBLIC_URL || "http://localhost:" + (process.env.PORT || 4173);
+
 @Controller("auth")
 export class AuthController {
   constructor(private db: DbService) {}
 
   @Post("signup")
   async signup(@Body() body: any) {
-    const { name, email, password, role } = body;
+    const { name, email, password, role, phone } = body;
     if (!name || !email || !password || password.length < 6)
       throw err(400, "Name, email and a 6+ char password are required");
+    if (!role || !["buyer/seller", "agent"].includes(role))
+      throw err(400, "Valid role is required (buyer/seller or agent)");
     const em = email.trim().toLowerCase();
     const { rows } = await this.db.q("SELECT 1 FROM users WHERE email = $1", [em]);
     if (rows.length) throw err(409, "Account exists — please login");
-    await this.db.q("INSERT INTO users (email,name,password,role) VALUES ($1,$2,$3,$4)",
-      [em, name.trim(), this.db.hashPassword(password), role || "buyer"]);
+    await this.db.q("INSERT INTO users (email,name,password,role,phone) VALUES ($1,$2,$3,$4,$5)",
+      [em, name.trim(), this.db.hashPassword(password), role, phone || null]);
     await this.db.issueOtp(em);
     return { needsOtp: true, email: em };
   }
@@ -78,21 +74,19 @@ export class AuthController {
   }
 
   @Get("google")
-  googleStart(@Req() req: any, @Res() res: any) {
+  googleStart(@Res() res: any) {
     if (!process.env.GOOGLE_CLIENT_ID)
       return res.status(501).json({ error: "Google SSO not configured — set GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET" });
-    const pubUrl = getPublicUrl(req);
     const url = "https://accounts.google.com/o/oauth2/v2/auth?" + new URLSearchParams({
       client_id: process.env.GOOGLE_CLIENT_ID,
-      redirect_uri: pubUrl + "/api/auth/google/callback",
+      redirect_uri: PUBLIC_URL + "/api/auth/google/callback",
       response_type: "code", scope: "openid email profile", prompt: "select_account"
     });
     res.redirect(url);
   }
 
   @Get("google/callback")
-  async googleCallback(@Req() req: any, @Query("code") code: string, @Res() res: any) {
-    const pubUrl = getPublicUrl(req);
+  async googleCallback(@Query("code") code: string, @Res() res: any) {
     try {
       const tokenResp = await fetch("https://oauth2.googleapis.com/token", {
         method: "POST",
@@ -101,7 +95,7 @@ export class AuthController {
           code, grant_type: "authorization_code",
           client_id: process.env.GOOGLE_CLIENT_ID || "",
           client_secret: process.env.GOOGLE_CLIENT_SECRET || "",
-          redirect_uri: pubUrl + "/api/auth/google/callback"
+          redirect_uri: PUBLIC_URL + "/api/auth/google/callback"
         })
       });
       const { access_token } = await tokenResp.json() as any;
@@ -118,7 +112,7 @@ export class AuthController {
         await this.db.q("UPDATE users SET verified = TRUE WHERE email = $1", [em]);
         const token = await this.db.createSession(em);
         const user = Buffer.from(JSON.stringify(this.db.publicUser(u))).toString("base64url");
-        return res.redirect(pubUrl + `/login?sso=${token}&u=${user}`);
+        return res.redirect(PUBLIC_URL + `/login?sso=${token}&u=${user}`);
       }
       
       // If user doesn't exist, register them with NULL password first
@@ -132,10 +126,10 @@ export class AuthController {
       await this.db.q("INSERT INTO sessions (token, email) VALUES ($1, $2)", [tempToken, em]);
       
       const name = u ? u.name : (info.name || em);
-      res.redirect(pubUrl + `/login?google_sso=1&temp_token=${tempToken}&email=${em}&name=${encodeURIComponent(name)}&has_password=false`);
+      res.redirect(PUBLIC_URL + `/login?google_sso=1&temp_token=${tempToken}&email=${em}&name=${encodeURIComponent(name)}&has_password=false`);
     } catch (e) {
       console.error("Google SSO Callback error:", e);
-      res.redirect(pubUrl + "/login?sso_error=" + encodeURIComponent("Google sign-in failed — try again"));
+      res.redirect(PUBLIC_URL + "/login?sso_error=" + encodeURIComponent("Google sign-in failed — try again"));
     }
   }
 
@@ -167,7 +161,14 @@ export class AuthController {
       if (!password || password.length < 6) {
         throw err(400, "Password must be at least 6 characters");
       }
-      await this.db.q("UPDATE users SET password = $1 WHERE email = $2", [this.db.hashPassword(password), em]);
+      
+      const role = body.role || "buyer/seller";
+      if (!["buyer/seller", "agent"].includes(role)) throw err(400, "Valid role is required");
+      const phone = body.phone || null;
+
+      await this.db.q("UPDATE users SET password = $1, role = $2, phone = $3 WHERE email = $4", [this.db.hashPassword(password), role, phone, em]);
+      u.role = role;
+      u.phone = phone;
     }
     
     // Create a permanent session token

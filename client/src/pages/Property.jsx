@@ -9,6 +9,7 @@ import MortgageCalc from "../components/MortgageCalc.jsx";
 import PropertyCard from "../components/PropertyCard.jsx";
 import { SkeletonProperty } from "../components/Skeleton.jsx";
 import { CalendarIcon, MailIcon, WaIcon, HeartIcon, PinIcon } from "../components/icons.jsx";
+import Chatbot from "../components/Chatbot.jsx";
 
 const fieldCls = "w-full rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 text-sm outline-none focus:ring-2 focus:ring-emerald-500";
 const btnBase = "flex w-full items-center justify-center gap-2 rounded-xl py-3 text-sm font-bold transition-all";
@@ -26,6 +27,9 @@ export default function Property() {
   const [booking, setBooking] = useState(false);
   const [invoice, setInvoice] = useState(null);
   const [similar, setSimilar] = useState([]);
+  const [chatOpen, setChatOpen] = useState(() => {
+    return new URLSearchParams(window.location.search).get("chat") === "true";
+  });
 
   useEffect(() => {
     // track recently viewed (most recent first, max 6)
@@ -152,8 +156,8 @@ export default function Property() {
               <button onClick={() => setVisitOpen(true)} className={btnBase + " bg-slate-900 text-white shadow-lg shadow-slate-900/20 hover:bg-slate-800"}>
                 <CalendarIcon size={16} /> Schedule a visit
               </button>
-              <button onClick={() => enquireEmail(p)} className={btnBase + " bg-gradient-to-r from-emerald-600 to-teal-500 text-white shadow-lg shadow-emerald-600/25 hover:brightness-110"}>
-                <MailIcon size={16} /> Request details
+              <button onClick={() => setChatOpen(true)} className={btnBase + " bg-gradient-to-r from-emerald-600 to-teal-500 text-white shadow-lg shadow-emerald-600/25 hover:brightness-110"}>
+                <MailIcon size={16} /> Interested? Chat with AI
               </button>
               <a
                 href={waLink(`Hi Nestora! I'm interested in "${p.title}" (${p.id}) in ${p.area}, ${p.city}. Please share details / book a visit.`)}
@@ -220,6 +224,8 @@ export default function Property() {
         <CheckoutModal invoice={invoice} onClose={() => setInvoice(null)}
           onPaid={() => toast("Visit confirmed 🎉 See it under My Account")} />
       )}
+      
+      <Chatbot property={p} open={chatOpen} setOpen={setChatOpen} />
     </div>
   );
 }

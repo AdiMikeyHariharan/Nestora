@@ -18,7 +18,7 @@ export default function Login() {
   const [googleSsoData, setGoogleSsoData] = useState(null);
   const [pendingEmail, setPendingEmail] = useState("");
   const [busy, setBusy] = useState(false);
-  const [form, setForm] = useState({ name: "", email: "", password: "", role: "buyer" });
+  const [form, setForm] = useState({ name: "", email: "", password: "", role: "buyer/seller", phone: "" });
   const [otp, setOtp] = useState(Array(6).fill(""));
   const boxRefs = useRef([]);
 
@@ -128,7 +128,9 @@ export default function Login() {
     try {
       const resp = await api.post("/auth/google/confirm", {
         temp_token: googleSsoData.tempToken,
-        password: form.password
+        password: form.password,
+        role: form.role,
+        phone: form.phone
       });
       login(resp.token, resp.user);
       toast(googleSsoData.hasPassword ? "Logged in ✔" : "Account password configured & logged in ✔");
@@ -172,13 +174,17 @@ export default function Login() {
                 </label>
               )}
               {mode === "signup" && (
-                <label className="block text-xs font-bold text-slate-600">I am a
-                  <select className={fieldCls + " mt-1.5"} value={form.role} onChange={e => setForm({ ...form, role: e.target.value })}>
-                    <option value="buyer">Buyer / Tenant</option>
-                    <option value="owner">Owner</option>
-                    <option value="realtor">Realtor / Mediator</option>
-                  </select>
-                </label>
+                <>
+                  <label className="block text-xs font-bold text-slate-600">Phone (for WhatsApp)
+                    <input className={fieldCls + " mt-1.5"} type="tel" value={form.phone} onChange={e => setForm({ ...form, phone: e.target.value })} placeholder="+1234567890" />
+                  </label>
+                  <label className="block text-xs font-bold text-slate-600">I am a
+                    <select className={fieldCls + " mt-1.5"} value={form.role} onChange={e => setForm({ ...form, role: e.target.value })}>
+                      <option value="buyer/seller">Buyer / Seller</option>
+                      <option value="agent">Agent / Realtor</option>
+                    </select>
+                  </label>
+                </>
               )}
               {mode === "login" && (
                 <div className="text-right">
@@ -273,6 +279,19 @@ export default function Login() {
                   placeholder={googleSsoData.hasPassword ? "Enter password" : "Create password (min. 6 chars)"} 
                 />
               </label>
+              {!googleSsoData.hasPassword && (
+                <>
+                  <label className="block text-xs font-bold text-slate-600">Phone (for WhatsApp)
+                    <input className={fieldCls + " mt-1.5"} type="tel" value={form.phone} onChange={e => setForm({ ...form, phone: e.target.value })} placeholder="+1234567890" />
+                  </label>
+                  <label className="block text-xs font-bold text-slate-600">I am a
+                    <select className={fieldCls + " mt-1.5"} value={form.role} onChange={e => setForm({ ...form, role: e.target.value })}>
+                      <option value="buyer/seller">Buyer / Seller</option>
+                      <option value="agent">Agent / Realtor</option>
+                    </select>
+                  </label>
+                </>
+              )}
               <button
                 disabled={busy}
                 className="flex w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-500 py-3 font-bold text-white shadow-lg shadow-emerald-600/25 hover:brightness-110 disabled:opacity-70"
