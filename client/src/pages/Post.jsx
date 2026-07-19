@@ -14,6 +14,7 @@ export default function Post() {
   const [busy, setBusy] = useState(false);
   const [photos, setPhotos] = useState([]);
   const [video, setVideo] = useState(null);
+  const [postedId, setPostedId] = useState(null); // set when we prompt to connect Calendar
   const [form, setForm] = useState({
     role: "owner", type: "buy", category: "resale", price: "", title: "", desc: "",
     city: "", area: "", pincode: "", sqft: "", beds: "2", baths: "2"
@@ -29,6 +30,13 @@ export default function Post() {
     if (!f) return;
     if (f.size > 25 * 1024 * 1024) { toast("Video too large for demo (max ~25MB)"); e.target.value = ""; return; }
     setVideo(await readAsDataURL(f));
+  };
+
+  const connectCalendar = async () => {
+    try {
+      const { url } = await api.get("/calendar/connect-url");
+      window.location.href = url; // returns to /account?calendar=connected
+    } catch (err) { toast(err.message); }
   };
 
   const submit = async e => {
@@ -48,6 +56,11 @@ export default function Post() {
         desc: form.desc, photos, video, role: form.role
       });
       toast("Listing published 🎉 (auto-geocoded for landmark search)");
+      // Nudge the seller to connect Google Calendar so visit bookings land on it.
+      try {
+        const s = await api.get("/calendar/status");
+        if (s.configured && !s.connected) { setPostedId(id); return; }
+      } catch { /* status optional — fall through to the listing */ }
       navigate("/property/" + id);
     } catch (err) {
       toast(err.message);
@@ -58,6 +71,34 @@ export default function Post() {
 
   return (
     <>
+      {postedId && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 p-4 backdrop-blur-sm">
+          <motion.div
+            initial={{ opacity: 0, scale: 0.94, y: 12 }} animate={{ opacity: 1, scale: 1, y: 0 }}
+            className="w-[min(440px,100%)] rounded-3xl bg-white p-7 text-center shadow-2xl ring-1 ring-slate-200"
+          >
+            <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-emerald-50">
+              <svg className="h-7 w-7" viewBox="0 0 24 24" fill="none" stroke="#059669" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" /><path d="M16 2v4M8 2v4M3 10h18" /></svg>
+            </div>
+            <h3 className="mt-4 text-lg font-extrabold tracking-tight">One last step — connect your calendar</h3>
+            <p className="mt-2 text-sm text-slate-500">Your listing is live. Connect Google Calendar so every site-visit a buyer books lands on your calendar automatically, with a reminder.</p>
+            <button
+              onClick={connectCalendar}
+              className="mt-5 flex w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-500 py-3 text-sm font-bold text-white shadow-lg shadow-emerald-600/25 hover:brightness-110"
+            >
+              <svg className="h-5 w-5" viewBox="0 0 24 24"><path fill="#fff" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 0 1-2.2 3.32v2.77h3.57c2.08-1.92 3.27-4.74 3.27-8.1Z" opacity=".9"/><path fill="#fff" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84A11 11 0 0 0 12 23Z" opacity=".65"/><path fill="#fff" d="M5.84 14.1a6.6 6.6 0 0 1 0-4.2V7.06H2.18a11 11 0 0 0 0 9.88l3.66-2.84Z" opacity=".8"/><path fill="#fff" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1a11 11 0 0 0-9.82 6.06l3.66 2.84C6.71 7.3 9.14 5.38 12 5.38Z"/></svg>
+              Connect Google Calendar
+            </button>
+            <button
+              onClick={() => navigate("/property/" + postedId)}
+              className="mt-2 w-full rounded-xl py-2.5 text-sm font-semibold text-slate-500 hover:bg-slate-50"
+            >
+              Skip for now
+            </button>
+          </motion.div>
+        </div>
+      )}
+
       <section className="grid-tex bg-slate-950 py-12 text-white">
         <div className="mx-auto w-[min(1200px,94%)]">
           <h1 className="text-3xl font-extrabold tracking-tight sm:text-4xl">Post your property — free</h1>
