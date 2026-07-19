@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { api } from "../api.js";
 import { useApp } from "../store.jsx";
 import PropertyCard from "../components/PropertyCard.jsx";
@@ -32,6 +32,8 @@ export default function Account() {
   const [saved, setSaved] = useState([]);
   const [leads, setLeads] = useState([]);
   const [payInvoice, setPayInvoice] = useState(null);
+  const [cal, setCal] = useState({ configured: false, connected: false });
+  const [params, setParams] = useSearchParams();
 
   // Geolocation and clustered recommendations
   const [loc, setLoc] = useState(() => {
@@ -107,6 +109,23 @@ export default function Account() {
       });
   }, [loc, toast]);
 
+  // Google Calendar connection status + OAuth-return handling.
+  useEffect(() => {
+    if (!user) return;
+    api.get("/calendar/status").then(setCal).catch(() => {});
+    const c = params.get("calendar");
+    if (c === "connected") { toast("Google Calendar connected ✓"); setCal(s => ({ ...s, connected: true })); }
+    else if (c === "error") toast("Calendar connection failed — please try again");
+    if (c) { params.delete("calendar"); setParams(params, { replace: true }); }
+  }, [user]); // eslint-disable-line
+
+  const connectCalendar = async () => {
+    try {
+      const { url } = await api.get("/calendar/connect-url");
+      window.location.href = url;
+    } catch (e) { toast(e.message); }
+  };
+
   if (!user) return null;
 
   const removeListing = async id => {
@@ -132,6 +151,39 @@ export default function Account() {
       </section>
 
       <div className="mx-auto mt-9 w-[min(1200px,94%)] pb-10">
+        {/* Google Calendar connect — visit bookings land on the seller's calendar */}
+        {cal.configured && (
+          <div className="mb-6 flex flex-wrap items-center justify-between gap-4 rounded-2xl bg-white p-5 ring-1 ring-slate-200">
+            <div className="flex items-center gap-3">
+              <span className="grid h-11 w-11 place-items-center rounded-xl bg-emerald-50 text-2xl">📅</span>
+              <div>
+                <h3 className="font-extrabold tracking-tight">Google Calendar</h3>
+                <p className="text-sm text-slate-500">
+                  {cal.connected
+                    ? "Connected. Site-visit bookings for your listings are added to your calendar automatically."
+                    : "Connect your calendar so buyers' site-visit bookings appear on it automatically."}
+                </p>
+              </div>
+            </div>
+            {cal.connected ? (
+              <span className="rounded-full bg-emerald-50 px-4 py-2 text-sm font-bold text-emerald-700">✓ Connected</span>
+            ) : (
+              <button
+                onClick={connectCalendar}
+                className="flex items-center gap-2.5 rounded-xl border border-slate-200 px-5 py-2.5 text-sm font-bold text-slate-700 transition-colors hover:border-slate-300 hover:bg-slate-50"
+              >
+                <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden>
+                  <path fill="#4285F4" d="M23.5 12.3c0-.9-.1-1.5-.3-2.2H12v4.1h6.5c-.1 1.1-.8 2.7-2.4 3.8l3.7 2.9c2.3-2.1 3.7-5.1 3.7-8.6z" />
+                  <path fill="#34A853" d="M12 24c3.2 0 6-1.1 7.9-2.9l-3.7-2.9c-1 .7-2.4 1.2-4.2 1.2-3.2 0-6-2.2-7-5.1L1.2 17.2C3.2 21.2 7.3 24 12 24z" />
+                  <path fill="#FBBC05" d="M5 14.3c-.2-.7-.4-1.5-.4-2.3s.2-1.6.4-2.3L1.2 6.8C.4 8.4 0 10.1 0 12s.4 3.6 1.2 5.2L5 14.3z" />
+                  <path fill="#EA4335" d="M12 4.6c1.8 0 3 .8 3.7 1.4l3.3-3.2C17 1 14.2 0 12 0 7.3 0 3.2 2.8 1.2 6.8L5 9.7c1-2.9 3.8-5.1 7-5.1z" />
+                </svg>
+                Connect Google Calendar
+              </button>
+            )}
+          </div>
+        )}
+
         <SectionHead
           eyebrow="Personalized Picks"
           title="Properties Near You"

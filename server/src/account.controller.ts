@@ -1,15 +1,26 @@
 import { Body, Controller, Get, Post, Query, Req, HttpException } from "@nestjs/common";
 import * as crypto from "node:crypto";
 import { DbService } from "./db.service";
+import { CalendarService } from "./calendar.service";
 
 const err = (code: number, msg: string) => new HttpException({ error: msg }, code);
 // Free while we collect data/leads. Set VISIT_FEE_INR > 0 (env) to re-enable the
 // refundable site-visit token + checkout flow — the payment plumbing stays intact.
 const VISIT_FEE_INR = parseInt(process.env.VISIT_FEE_INR || "0", 10);
 
+// "2026-07-19, Morning (10am–12pm)" -> { start:"2026-07-19T10:00:00", end:"...T11:00:00" }
+function visitWindow(datePref: string): { startISO: string; endISO: string } | null {
+  const date = (datePref || "").split(",")[0].trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return null;
+  const p = (datePref || "").toLowerCase();
+  const hour = p.includes("evening") ? 17 : p.includes("afternoon") ? 14 : 10;
+  const hh = String(hour).padStart(2, "0");
+  return { startISO: `${date}T${hh}:00:00`, endISO: `${date}T${String(hour + 1).padStart(2, "0")}:00:00` };
+}
+
 @Controller()
 export class AccountController {
-  constructor(private db: DbService) {}
+  constructor(private db: DbService, private cal: CalendarService) {}
 
   private async requireUser(req: any) {
     const user = await this.db.userFromRequest(req);
@@ -52,7 +63,17 @@ export class AccountController {
         [bid, user.email, prop.id, body.date_pref || ""]);
       this.db.sendEmail(user.email, "Visit confirmed — " + prop.title,
         `Hi ${user.name}, your site visit for ${prop.title} (${prop.area}, ${prop.city}) is confirmed. Our advisor will call to finalise the time.`);
-      return { booking_id: bid, amount: 0, free: true };
+      // If the seller has connected Google Calendar, drop the visit on their calendar.
+      const win = visitWindow(body.date_pref);
+      let calendarAdded = false;
+      if (win && prop.posted_by && prop.posted_by !== "seed") {
+        calendarAdded = await this.cal.createSellerEvent(prop.posted_by, {
+          summary: `Nestora site visit — ${prop.title}`,
+          description: `Buyer ${user.name} (${user.email}) booked a visit for ${prop.title}, ${prop.area}, ${prop.city}.\nPreferred: ${body.date_pref}`,
+          startISO: win.startISO, endISO: win.endISO, buyerEmail: user.email
+        });
+      }
+      return { booking_id: bid, amount: 0, free: true, calendarAdded };
     }
 
     // Paid mode: booking awaits a refundable-token payment.
