@@ -222,7 +222,7 @@ export default function ChatWidget() {
                       key={p.id} to={`/property/${p.id}`} onClick={() => setOpen(false)}
                       className="flex items-center gap-2.5 rounded-xl border border-slate-200 bg-white p-2 transition-colors hover:border-emerald-400"
                     >
-                      <img src={p.img} className="h-[50px] w-16 shrink-0 rounded-lg object-cover" onError={e => { e.currentTarget.style.display = "none"; }} />
+                      <img src={p.img} alt={p.title} loading="lazy" className="h-[50px] w-16 shrink-0 rounded-lg object-cover" onError={e => { e.currentTarget.style.display = "none"; }} />
                       <div className="min-w-0">
                         <b className="block text-sm text-emerald-700">{fmtPrice(p.priceINR, p.type === "rent", currency)}</b>
                         <span className="block truncate text-xs font-semibold">{p.title}</span>

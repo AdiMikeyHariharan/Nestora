@@ -3,6 +3,7 @@ import { Link, useNavigate, useParams } from "react-router-dom";
 import { motion } from "motion/react";
 import { api, fmtPrice, waLink, enquireEmail } from "../api.js";
 import { useApp } from "../store.jsx";
+import { usePageMeta, useJsonLd, propertyJsonLd } from "../seo.js";
 import MapPanel from "../components/MapPanel.jsx";
 import CheckoutModal from "../components/CheckoutModal.jsx";
 import MortgageCalc from "../components/MortgageCalc.jsx";
@@ -16,7 +17,7 @@ const btnBase = "flex w-full items-center justify-center gap-2 rounded-xl py-3 t
 
 export default function Property() {
   const { id } = useParams();
-  const { user, shortlist, toggleShortlist, toast, currency } = useApp();
+  const { user, shortlist, toggleShortlist, toast, currency, setActiveProperty } = useApp();
   const navigate = useNavigate();
   const [p, setP] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -38,7 +39,7 @@ export default function Property() {
       localStorage.setItem("nst_recent", JSON.stringify([id, ...seen].slice(0, 6)));
     } catch { /* ignore */ }
     api.get("/properties/" + id)
-      .then(d => { setP(d.property); setMainImg(d.property.img); return d.property; })
+      .then(d => { setP(d.property); setMainImg(d.property.img); setActiveProperty(d.property); return d.property; })
       .then(prop => api.get("/properties").then(({ properties }) => {
         // intelligent picks: same city first, then same configuration, never itself
         const ranked = properties
@@ -50,7 +51,16 @@ export default function Property() {
       }))
       .catch(() => setP(null))
       .finally(() => setLoading(false));
+    return () => setActiveProperty(null); // clear when leaving the property page
   }, [id]);
+
+  // Per-listing title/description + structured data (must run before early returns).
+  const priceStr = p ? fmtPrice(p.priceINR, p.type === "rent", "INR") : "";
+  usePageMeta(p ? {
+    title: `${p.title}, ${p.area} — ${priceStr}`,
+    description: `${p.title} in ${p.area}, ${p.city} (${p.pincode}). ${priceStr} · ${p.sqft} sqft${p.beds ? ` · ${p.beds} BHK` : ""}. View photos, map, EMI estimate and book a free site visit on Nestora.`
+  } : {});
+  useJsonLd(p ? propertyJsonLd(p) : null);
 
   if (loading) return <SkeletonProperty />;
   if (!p) return (
@@ -103,7 +113,7 @@ export default function Property() {
             <div className="mt-2.5 grid grid-cols-4 gap-2.5">
               {photos.map(ph => (
                 <img
-                  key={ph} src={ph}
+                  key={ph} src={ph} alt={`${p.title} — photo`} loading="lazy"
                   className={`aspect-[4/3] cursor-pointer rounded-xl object-cover ring-2 transition-all ${ph === mainImg ? "ring-emerald-500" : "ring-transparent hover:ring-emerald-200"}`}
                   onClick={() => setMainImg(ph)} onError={e => e.currentTarget.remove()}
                 />

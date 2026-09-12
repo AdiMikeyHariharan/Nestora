@@ -272,7 +272,7 @@ export default function Account() {
           <div className="space-y-3">
             {bookings.map(b => (
               <div key={b.id} className="flex flex-wrap items-center gap-4 rounded-2xl bg-white p-4 ring-1 ring-slate-200">
-                {b.img && <img src={b.img} className="h-14 w-[74px] rounded-xl object-cover" onError={e => { e.currentTarget.style.display = "none"; }} />}
+                {b.img && <img src={b.img} alt={b.title || "Property"} loading="lazy" className="h-14 w-[74px] rounded-xl object-cover" onError={e => { e.currentTarget.style.display = "none"; }} />}
                 <div className="min-w-[180px] flex-1">
                   <b className="block text-[15px]">{b.title || b.property_id}</b>
                   <small className="text-slate-400">📍 {b.area}, {b.city}{b.date_pref ? " · Preferred: " + b.date_pref : ""}</small>

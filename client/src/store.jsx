@@ -12,6 +12,7 @@ export function AppProvider({ children }) {
   });
   const [currency, setCurrencyState] = useState(localStorage.getItem("nst_currency") || "INR");
   const [shortlist, setShortlist] = useState([]);
+  const [activeProperty, setActiveProperty] = useState(null); // property currently being viewed
   const [toastMsg, setToastMsg] = useState("");
   const toastTimer = useRef();
 
@@ -51,7 +52,7 @@ export function AppProvider({ children }) {
   };
 
   return (
-    <Ctx.Provider value={{ user, login, logout, currency, setCurrency, shortlist, toggleShortlist, toast }}>
+    <Ctx.Provider value={{ user, login, logout, currency, setCurrency, shortlist, toggleShortlist, toast, activeProperty, setActiveProperty }}>
       {children}
       <AnimatePresence>
         {toastMsg && (

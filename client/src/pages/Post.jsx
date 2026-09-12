@@ -3,12 +3,17 @@ import { useNavigate } from "react-router-dom";
 import { motion } from "motion/react";
 import { api } from "../api.js";
 import { useApp } from "../store.jsx";
+import { usePageMeta } from "../seo.js";
 
 const readAsDataURL = f => new Promise(res => { const r = new FileReader(); r.onload = () => res(r.result); r.readAsDataURL(f); });
 const fieldCls = "w-full rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 text-sm outline-none focus:ring-2 focus:ring-emerald-500";
 const lbl = "block text-xs font-bold text-slate-600";
 
 export default function Post() {
+  usePageMeta({
+    title: "Post your property free — sell or rent",
+    description: "List your flat, house, villa or plot on Nestora for free. Owners and realtors get verified listings, landmark search visibility and site-visit bookings straight to your calendar."
+  });
   const { user, toast } = useApp();
   const navigate = useNavigate();
   const [busy, setBusy] = useState(false);
@@ -165,7 +170,7 @@ export default function Post() {
               </label>
               {photos.length > 0 && (
                 <div className="mt-3 flex flex-wrap gap-2">
-                  {photos.map((d, i) => <img key={i} src={d} className="h-16 w-20 rounded-lg object-cover ring-1 ring-slate-200" />)}
+                  {photos.map((d, i) => <img key={i} src={d} alt={`Listing photo ${i + 1}`} loading="lazy" className="h-16 w-20 rounded-lg object-cover ring-1 ring-slate-200" />)}
                 </div>
               )}
             </div>

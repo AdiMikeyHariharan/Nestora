@@ -1,7 +1,7 @@
 import { Routes, Route, Link, NavLink, useLocation } from "react-router-dom";
 import { useEffect, useState } from "react";
 import { useApp } from "./store.jsx";
-import { NESTORA, waLink } from "./api.js";
+import { NESTORA, waLink, fmtPrice } from "./api.js";
 import ChatWidget from "./components/ChatWidget.jsx";
 import { WaIcon, MailIcon, PhoneIcon } from "./components/icons.jsx";
 import Home from "./pages/Home.jsx";
@@ -10,6 +10,7 @@ import Property from "./pages/Property.jsx";
 import Post from "./pages/Post.jsx";
 import Login from "./pages/Login.jsx";
 import Account from "./pages/Account.jsx";
+import NotFound from "./pages/NotFound.jsx";
 
 export function Logo({ dark }) {
   return (
@@ -111,8 +112,8 @@ function Footer() {
             <a href={waLink("Hi Nestora!")} target="_blank" rel="noreferrer" className="flex items-center gap-2.5 py-1.5 text-sm text-slate-400 hover:text-white">
               <WaIcon size={17} className="shrink-0 text-[#25d366]" /> WhatsApp
             </a>
-            <a href="tel:+917795588955" className="flex items-center gap-2.5 py-1.5 text-sm text-slate-400 hover:text-white">
-              <PhoneIcon size={17} className="shrink-0 text-slate-500" /> +91 77955 88955
+            <a href="tel:+917548889342" className="flex items-center gap-2.5 py-1.5 text-sm text-slate-400 hover:text-white">
+              <PhoneIcon size={17} className="shrink-0 text-slate-500" /> +91 75488 89342
             </a>
           </div>
         </div>
@@ -127,7 +128,12 @@ function Footer() {
 
 export default function App() {
   const { pathname } = useLocation();
+  const { activeProperty: ap } = useApp();
   useEffect(() => { window.scrollTo(0, 0); }, [pathname]);
+  // When the user is viewing a property, the WhatsApp message names that property.
+  const waMessage = ap
+    ? `Hi Nestora! I'm interested in "${ap.title}" — ${ap.area}, ${ap.city} (${fmtPrice(ap.priceINR, ap.type === "rent")}).\n${window.location.origin}/property/${ap.id}\nPlease share details / book a visit.`
+    : "Hi Nestora! I'd like help finding a property.";
   return (
     <>
       <Header />
@@ -138,12 +144,12 @@ export default function App() {
         <Route path="/post" element={<Post />} />
         <Route path="/login" element={<Login />} />
         <Route path="/account" element={<Account />} />
-        <Route path="*" element={<Home />} />
+        <Route path="*" element={<NotFound />} />
       </Routes>
       <Footer />
       <a
         className="fixed bottom-6 right-6 z-[60] grid h-14 w-14 place-items-center rounded-full bg-[#25d366] text-white shadow-xl shadow-black/25 transition-transform hover:scale-110"
-        href={waLink("Hi Nestora! I'd like help finding a property.")}
+        href={waLink(waMessage)}
         target="_blank" rel="noreferrer" title="WhatsApp us" aria-label="Chat on WhatsApp"
       ><WaIcon size={26} /></a>
       <ChatWidget />

@@ -4,6 +4,7 @@ import { motion } from "motion/react";
 import { api } from "../api.js";
 import { nlToUrl } from "../lib/nlsearch.js";
 import { useApp } from "../store.jsx";
+import { usePageMeta } from "../seo.js";
 import PropertyCard from "../components/PropertyCard.jsx";
 import MapPanel from "../components/MapPanel.jsx";
 import GeoSearch from "../components/GeoSearch.jsx";
@@ -83,6 +84,7 @@ function AISearchBar() {
 }
 
 export default function Home() {
+  usePageMeta(); // site defaults
   const { shortlist } = useApp();
   const [deal, setDeal] = useState("buy");
   const [featured, setFeatured] = useState([]);

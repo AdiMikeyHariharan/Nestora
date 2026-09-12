@@ -5,6 +5,7 @@ import PropertyCard from "../components/PropertyCard.jsx";
 import MapPanel from "../components/MapPanel.jsx";
 import GeoSearch from "../components/GeoSearch.jsx";
 import { SkeletonGrid } from "../components/Skeleton.jsx";
+import { usePageMeta } from "../seo.js";
 
 const fieldCls = "w-full rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 text-sm outline-none focus:ring-2 focus:ring-emerald-500";
 const lbl = "block text-[11px] font-bold uppercase tracking-wide text-slate-500";
@@ -124,6 +125,14 @@ function BudgetHistogramSlider({ min, max, counts, valueMin, valueMax, onChange,
 
 export default function Listings() {
   const [params, setParams] = useSearchParams();
+  // Search-aware title, e.g. "Property for sale in Coimbatore" — targets local queries.
+  const qLabel = params.get("q") || params.get("pincode");
+  const dealLabel = params.get("type") === "rent" ? "Property for rent"
+    : params.get("type") === "buy" ? "Property for sale" : "Properties for sale & rent";
+  usePageMeta({
+    title: qLabel ? `${dealLabel} in ${qLabel}` : `${dealLabel} in India`,
+    description: `Browse verified ${qLabel ? `properties in ${qLabel}` : "properties across India"} on Nestora — filter by budget, BHK, furnishing and locality, view them on a map and book a free site visit.`
+  });
   const [list, setList] = useState([]);
   const [loading, setLoading] = useState(true);
   const [sort, setSort] = useState("");
