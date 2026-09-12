@@ -5,6 +5,7 @@
   "outputDirectory": "dist",
   "rewrites": [
     { "source": "/api/(.*)", "destination": "https://nestora-s57g.onrender.com/api/$1" },
+    { "source": "/sitemap.xml", "destination": "https://nestora-s57g.onrender.com/api/sitemap.xml" },
     { "source": "/(.*)", "destination": "/index.html" }
   ]
 }

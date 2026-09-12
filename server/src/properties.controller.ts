@@ -1,4 +1,4 @@
-import { Controller, Delete, Get, Param, Post, Query, Body, Req, HttpException } from "@nestjs/common";
+import { Controller, Delete, Get, Param, Post, Query, Body, Req, Res, HttpException } from "@nestjs/common";
 import { DbService } from "./db.service";
 import { GeoService } from "./geo.service";
 
@@ -7,6 +7,42 @@ const err = (code: number, msg: string) => new HttpException({ error: msg }, cod
 @Controller()
 export class PropertiesController {
   constructor(private db: DbService, private geo: GeoService) {}
+
+  // Sitemap built from live data, so every listing (and each locality we actually
+  // have stock in) is discoverable by search engines. Vercel rewrites /sitemap.xml here.
+  @Get("sitemap.xml")
+  async sitemap(@Res() res: any) {
+    const SITE = (process.env.PUBLIC_URL || "https://www.nestora.properties").replace(/\/$/, "");
+    const esc = (s: string) => String(s).replace(/[<>&'"]/g, c =>
+      ({ "<": "&lt;", ">": "&gt;", "&": "&amp;", "'": "&apos;", '"': "&quot;" }[c] as string));
+    const url = (loc: string, priority: string, freq: string, lastmod?: string) =>
+      `  <url>\n    <loc>${esc(loc)}</loc>\n` +
+      (lastmod ? `    <lastmod>${new Date(lastmod).toISOString().slice(0, 10)}</lastmod>\n` : "") +
+      `    <changefreq>${freq}</changefreq>\n    <priority>${priority}</priority>\n  </url>`;
+
+    const { rows } = await this.db.q(
+      "SELECT id, city, area, type, created_at FROM properties ORDER BY created_at DESC");
+
+    const parts = [
+      url(`${SITE}/`, "1.0", "daily"),
+      url(`${SITE}/listings`, "0.9", "hourly"),
+      url(`${SITE}/post`, "0.6", "weekly")
+    ];
+    // Locality + city search pages — these are what local queries land on.
+    const seen = new Set<string>();
+    for (const r of rows) {
+      for (const term of [r.city, r.area]) {
+        const t = (term || "").trim();
+        if (!t || seen.has(t.toLowerCase())) continue;
+        seen.add(t.toLowerCase());
+        parts.push(url(`${SITE}/listings?q=${encodeURIComponent(t)}`, "0.8", "daily"));
+      }
+    }
+    for (const r of rows) parts.push(url(`${SITE}/property/${r.id}`, "0.7", "weekly", r.created_at));
+
+    res.type("application/xml").send(
+      `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${parts.join("\n")}\n</urlset>\n`);
+  }
 
   @Get("geocode")
   async geocode(@Query("q") text: string) {
