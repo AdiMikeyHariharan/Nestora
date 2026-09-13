@@ -53,6 +53,9 @@ export class DbService implements OnModuleInit {
       CREATE INDEX IF NOT EXISTS idx_chat_session ON chat_messages (session, id);
       
       ALTER TABLE users ADD COLUMN IF NOT EXISTS phone TEXT;
+      -- Google SSO used to create users as 'buyer', which isn't a valid role and hid
+      -- their listings from the dashboard. Repair those accounts.
+      UPDATE users SET role = 'buyer/seller' WHERE role = 'buyer';
       
       CREATE TABLE IF NOT EXISTS leads (
         id TEXT PRIMARY KEY,

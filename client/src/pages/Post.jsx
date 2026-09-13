@@ -21,7 +21,9 @@ export default function Post() {
   const [video, setVideo] = useState(null);
   const [postedId, setPostedId] = useState(null); // set when we prompt to connect Calendar
   const [form, setForm] = useState({
-    role: "owner", type: "buy", category: "resale", price: "", title: "", desc: "",
+    // Agents list as realtors — the server enforces this, so don't offer "Owner".
+    role: user?.role === "agent" ? "realtor" : "owner",
+    type: "buy", category: "resale", price: "", title: "", desc: "",
     city: "", area: "", pincode: "", sqft: "", beds: "2", baths: "2"
   });
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
@@ -121,7 +123,8 @@ export default function Post() {
           <div className="grid gap-4 sm:grid-cols-2">
             <label className={lbl}>I am a
               <select className={fieldCls + " mt-1.5"} value={form.role} onChange={e => set("role", e.target.value)}>
-                <option value="owner">Owner</option><option value="realtor">Realtor / Mediator</option>
+                {user?.role !== "agent" && <option value="owner">Owner</option>}
+                <option value="realtor">Realtor / Mediator</option>
               </select>
             </label>
             <label className={lbl}>Listing for

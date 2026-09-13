@@ -117,7 +117,9 @@ export class AuthController {
       
       // If user doesn't exist, register them with NULL password first
       if (!u) {
-        await this.db.q(`INSERT INTO users (email, name, password, role, verified) VALUES ($1,$2,NULL,'buyer',TRUE)`, 
+        // 'buyer/seller' is the valid role (plain 'buyer' fails the role checks and
+        // hides the user's own listings in the dashboard).
+        await this.db.q(`INSERT INTO users (email, name, password, role, verified) VALUES ($1,$2,NULL,'buyer/seller',TRUE)`,
           [em, info.name || em]);
       }
       
