@@ -12,7 +12,10 @@ export class PropertiesController {
   // have stock in) is discoverable by search engines. Vercel rewrites /sitemap.xml here.
   @Get("sitemap.xml")
   async sitemap(@Res() res: any) {
-    const SITE = (process.env.PUBLIC_URL || "https://www.nestora.properties").replace(/\/$/, "");
+    // Canonical public host — deliberately NOT PUBLIC_URL, which points at the apex
+    // for OAuth callbacks while the site itself canonicalises to www. Listing apex
+    // URLs here would make every sitemap entry a 308 redirect.
+    const SITE = (process.env.SITE_URL || "https://www.nestora.properties").replace(/\/$/, "");
     const esc = (s: string) => String(s).replace(/[<>&'"]/g, c =>
       ({ "<": "&lt;", ">": "&gt;", "&": "&amp;", "'": "&apos;", '"': "&quot;" }[c] as string));
     const url = (loc: string, priority: string, freq: string, lastmod?: string) =>
