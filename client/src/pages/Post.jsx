@@ -1,10 +1,11 @@
 import { useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { motion } from "motion/react";
 import { api } from "../api.js";
 import { useApp } from "../store.jsx";
 import { usePageMeta } from "../seo.js";
 
+const DRAFT_KEY = "nst_post_draft";
 const readAsDataURL = f => new Promise(res => { const r = new FileReader(); r.onload = () => res(r.result); r.readAsDataURL(f); });
 const fieldCls = "w-full rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 text-sm outline-none focus:ring-2 focus:ring-emerald-500";
 const lbl = "block text-xs font-bold text-slate-600";
@@ -20,12 +21,24 @@ export default function Post() {
   const [photos, setPhotos] = useState([]);
   const [video, setVideo] = useState(null);
   const [postedId, setPostedId] = useState(null); // set when we prompt to connect Calendar
-  const [form, setForm] = useState({
-    // Agents list as realtors — the server enforces this, so don't offer "Owner".
-    role: user?.role === "agent" ? "realtor" : "owner",
-    type: "buy", category: "resale", price: "", title: "", desc: "",
-    city: "", area: "", pincode: "", sqft: "", beds: "2", baths: "2"
+  const [form, setForm] = useState(() => {
+    const base = {
+      // Agents list as realtors — the server enforces this, so don't offer "Owner".
+      role: user?.role === "agent" ? "realtor" : "owner",
+      type: "buy", category: "resale", price: "", title: "", desc: "",
+      city: "", area: "", pincode: "", sqft: "", beds: "2", baths: "2"
+    };
+    // Restore a draft kept while the user went off to log in.
+    try {
+      const saved = JSON.parse(localStorage.getItem(DRAFT_KEY) || "null");
+      return saved ? { ...base, ...saved, role: base.role } : base;
+    } catch { return base; }
   });
+  // Photos/video are base64 and would blow the ~5MB localStorage quota, so the
+  // draft keeps the typed fields only.
+  const saveDraft = () => {
+    try { localStorage.setItem(DRAFT_KEY, JSON.stringify(form)); } catch { /* quota/private mode */ }
+  };
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
 
   const onPhotos = async e => {
@@ -49,7 +62,8 @@ export default function Post() {
   const submit = async e => {
     e.preventDefault();
     if (!user) {
-      toast("Please login first — one-time signup");
+      saveDraft(); // don't make them retype everything after logging in
+      toast("Please log in to publish — we'll keep your details");
       setTimeout(() => navigate("/login?next=/post"), 800);
       return;
     }
@@ -62,6 +76,7 @@ export default function Post() {
         baths: parseInt(form.baths, 10), sqft: parseInt(form.sqft, 10),
         desc: form.desc, photos, video, role: form.role
       });
+      try { localStorage.removeItem(DRAFT_KEY); } catch { /* ignore */ }
       toast("Listing published 🎉 (auto-geocoded for landmark search)");
       // Nudge the seller to connect Google Calendar so visit bookings land on it.
       try {
@@ -114,6 +129,33 @@ export default function Post() {
       </section>
 
       <div className="mx-auto mt-9 w-[min(820px,94%)] pb-10">
+        {/* Say this before they fill the form, not after they hit Publish. */}
+        {!user && (
+          <motion.div
+            initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.4 }}
+            className="mb-5 rounded-3xl bg-white p-6 shadow-lg shadow-slate-900/5 ring-1 ring-slate-200"
+          >
+            <div className="flex flex-wrap items-center justify-between gap-4">
+              <div className="min-w-[240px] flex-1">
+                <h3 className="text-base font-extrabold tracking-tight">You'll need an account to publish</h3>
+                <p className="mt-1 text-sm text-slate-500">
+                  Listing is free. Go ahead and fill this in — we'll save what you've typed and bring you straight back.
+                </p>
+              </div>
+              <div className="flex shrink-0 gap-2.5">
+                <Link
+                  to="/login?next=/post" onClick={saveDraft}
+                  className="rounded-xl border border-slate-200 px-5 py-2.5 text-sm font-bold text-slate-700 hover:border-emerald-400 hover:text-emerald-700"
+                >Log in</Link>
+                <Link
+                  to="/login?next=/post&mode=signup" onClick={saveDraft}
+                  className="rounded-xl bg-gradient-to-r from-emerald-600 to-teal-500 px-5 py-2.5 text-sm font-bold text-white shadow-lg shadow-emerald-600/25 hover:brightness-110"
+                >Create account</Link>
+              </div>
+            </div>
+          </motion.div>
+        )}
+
         <motion.form
           initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.45 }}
           onSubmit={submit}

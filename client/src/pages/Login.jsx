@@ -12,7 +12,8 @@ export default function Login() {
   const [params] = useSearchParams();
   const next = params.get("next") || "/account";
 
-  const [mode, setMode] = useState("login");
+  // ?mode=signup lets other pages (e.g. Post) send people straight to signup.
+  const [mode, setMode] = useState(params.get("mode") === "signup" ? "signup" : "login");
   const [step, setStep] = useState("auth"); // auth | otp | google_confirm
   const [loginMethod, setLoginMethod] = useState("password"); // password | otp
   const [googleSsoData, setGoogleSsoData] = useState(null);
