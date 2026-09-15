@@ -133,7 +133,7 @@ export default function Login() {
         phone: form.phone
       });
       login(resp.token, resp.user);
-      toast(googleSsoData.hasPassword ? "Logged in ✔" : "Account password configured & logged in ✔");
+      toast(googleSsoData.hasPassword ? "Logged in ✔" : "Welcome to Nestora ✔");
       navigate(next);
     } catch (err) {
       toast(err.message);
@@ -262,33 +262,44 @@ export default function Login() {
           <>
             <h2 className="text-center text-2xl font-extrabold tracking-tight">Complete Google Sign-In</h2>
             <p className="mb-6 mt-1 text-center text-sm text-slate-500">
-              {googleSsoData.hasPassword 
+              {googleSsoData.hasPassword
                 ? `Please verify the password for your Nestora account (${googleSsoData.email}).`
-                : `Set a password for your new Nestora account (${googleSsoData.email}).`
+                : `Just one detail and you're in — signed in as ${googleSsoData.email}.`
               }
             </p>
             <form onSubmit={submitGoogleConfirm} className="space-y-4">
-              <label className="block text-xs font-bold text-slate-600">Password
-                <input 
-                  className={fieldCls + " mt-1.5"} 
-                  type="password" 
-                  required 
-                  minLength={6} 
-                  value={form.password} 
-                  onChange={e => setForm({ ...form, password: e.target.value })} 
-                  placeholder={googleSsoData.hasPassword ? "Enter password" : "Create password (min. 6 chars)"} 
-                />
-              </label>
-              {!googleSsoData.hasPassword && (
+              {googleSsoData.hasPassword ? (
+                <label className="block text-xs font-bold text-slate-600">Password
+                  <input
+                    className={fieldCls + " mt-1.5"}
+                    type="password" required minLength={6}
+                    value={form.password}
+                    onChange={e => setForm({ ...form, password: e.target.value })}
+                    placeholder="Enter password"
+                  />
+                </label>
+              ) : (
                 <>
-                  <label className="block text-xs font-bold text-slate-600">Phone (for WhatsApp)
-                    <input className={fieldCls + " mt-1.5"} type="tel" value={form.phone} onChange={e => setForm({ ...form, phone: e.target.value })} placeholder="+1234567890" />
-                  </label>
                   <label className="block text-xs font-bold text-slate-600">I am a
                     <select className={fieldCls + " mt-1.5"} value={form.role} onChange={e => setForm({ ...form, role: e.target.value })}>
                       <option value="buyer/seller">Buyer / Seller</option>
                       <option value="agent">Agent / Realtor</option>
                     </select>
+                  </label>
+                  <label className="block text-xs font-bold text-slate-600">Phone (for WhatsApp)
+                    <input className={fieldCls + " mt-1.5"} type="tel" value={form.phone} onChange={e => setForm({ ...form, phone: e.target.value })} placeholder="+91 90000 00000" />
+                  </label>
+                  {/* Google already proves who they are — a password is only needed if
+                      they also want to sign in with email. */}
+                  <label className="block text-xs font-bold text-slate-600">
+                    Password <span className="font-medium text-slate-400">— optional</span>
+                    <input
+                      className={fieldCls + " mt-1.5"}
+                      type="password" minLength={6}
+                      value={form.password}
+                      onChange={e => setForm({ ...form, password: e.target.value })}
+                      placeholder="Set one only if you also want email login"
+                    />
                   </label>
                 </>
               )}
@@ -299,7 +310,7 @@ export default function Login() {
                 {busy ? (
                   <><span className="spin h-4 w-4 rounded-full border-2 border-white/40 border-t-white" /> Processing…</>
                 ) : (
-                  googleSsoData.hasPassword ? "Verify & Log in" : "Set password & Sign up"
+                  googleSsoData.hasPassword ? "Verify & Log in" : "Continue"
                 )}
               </button>
               <div className="text-center mt-3">

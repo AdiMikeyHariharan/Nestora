@@ -107,8 +107,10 @@ export class AuthController {
       // Check if user already exists
       const { rows: [u] } = await this.db.q("SELECT * FROM users WHERE email = $1", [em]);
       
-      if (u && u.password) {
-        // Log in directly since the user already exists and has a password
+      // Already finished signup (password set, or onboarded via Google without one)
+      // -> straight in. Without the onboarded check, a passwordless Google user
+      // would be asked to create a password on every single sign-in.
+      if (u && (u.password || u.onboarded)) {
         await this.db.q("UPDATE users SET verified = TRUE WHERE email = $1", [em]);
         const token = await this.db.createSession(em);
         const user = Buffer.from(JSON.stringify(this.db.publicUser(u))).toString("base64url");
@@ -154,21 +156,25 @@ export class AuthController {
     await this.db.q("DELETE FROM sessions WHERE token = $1", [temp_token]);
     
     if (u.password) {
-      // User already has a password, we must verify it
+      // Linking Google to an existing password account — prove they own it.
       if (!this.db.checkPassword(password || "", u.password)) {
         throw err(401, "Incorrect password for this account");
       }
+      await this.db.q("UPDATE users SET onboarded = TRUE WHERE email = $1", [em]);
     } else {
-      // User does not have a password, we set it
-      if (!password || password.length < 6) {
-        throw err(400, "Password must be at least 6 characters");
-      }
-      
       const role = body.role || "buyer/seller";
       if (!["buyer/seller", "agent"].includes(role)) throw err(400, "Valid role is required");
       const phone = body.phone || null;
 
-      await this.db.q("UPDATE users SET password = $1, role = $2, phone = $3 WHERE email = $4", [this.db.hashPassword(password), role, phone, em]);
+      // Password is optional: Google is already proof of identity. Only set one if
+      // they actually want to be able to sign in with email/password too.
+      if (password) {
+        if (password.length < 6) throw err(400, "Password must be at least 6 characters");
+        await this.db.q("UPDATE users SET password = $1, role = $2, phone = $3, onboarded = TRUE WHERE email = $4",
+          [this.db.hashPassword(password), role, phone, em]);
+      } else {
+        await this.db.q("UPDATE users SET role = $1, phone = $2, onboarded = TRUE WHERE email = $3", [role, phone, em]);
+      }
       u.role = role;
       u.phone = phone;
     }

@@ -56,6 +56,10 @@ export class DbService implements OnModuleInit {
       -- Google SSO used to create users as 'buyer', which isn't a valid role and hid
       -- their listings from the dashboard. Repair those accounts.
       UPDATE users SET role = 'buyer/seller' WHERE role = 'buyer';
+      -- Marks a finished signup. Google users may have no password at all, so the
+      -- presence of one can't be the signal for "already onboarded".
+      ALTER TABLE users ADD COLUMN IF NOT EXISTS onboarded BOOLEAN DEFAULT FALSE;
+      UPDATE users SET onboarded = TRUE WHERE password IS NOT NULL AND onboarded = FALSE;
       
       CREATE TABLE IF NOT EXISTS leads (
         id TEXT PRIMARY KEY,
