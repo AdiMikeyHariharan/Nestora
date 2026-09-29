@@ -73,12 +73,23 @@ export class DbService implements OnModuleInit {
       );
     `);
     await this.seed();
+    await this.ensureAdmin();
+  }
+
+  // The admin account comes from env (ADMIN_EMAIL / ADMIN_PASSWORD) so the password
+  // never lives in git. Signup can't create admins — it only accepts buyer/seller or agent.
+  private async ensureAdmin() {
+    const email = (process.env.ADMIN_EMAIL || "").trim().toLowerCase();
+    const password = process.env.ADMIN_PASSWORD || "";
+    if (!email || password.length < 8) return;
+    await this.q(
+      `INSERT INTO users (email, name, password, role, verified, onboarded) VALUES ($1, 'Nestora Admin', $2, 'admin', TRUE, TRUE)
+       ON CONFLICT (email) DO UPDATE SET password = $2, role = 'admin', verified = TRUE, onboarded = TRUE`,
+      [email, this.hashPassword(password)]);
+    console.log("Admin account ready:", email);
   }
 
   private async seed() {
-    // Refresh the seed catalogue on each boot — removes old seed rows (incl. the
-    // earlier demo listings) and leaves any user-posted listings untouched.
-    await this.q("DELETE FROM properties WHERE posted_by = 'seed'");
     // Real listings (Eken Properties, exported from 99acres). Columns:
     // [id, title, type, category, city, area, pincode, price_inr, beds, baths, sqft, description, lat, lng, img]
     // BHK/baths are estimated from built-up area where the source export omitted them;
@@ -140,9 +151,14 @@ export class DbService implements OnModuleInit {
       ["eken-O90501640","3 BHK Apartment in Senthil Golden Gate 3","buy","resale","Coimbatore","Saravanampatti","641035",10500000,3,2,1594,"Residential Apartment at Senthil Golden Gate 3, Saravanampatti, Coimbatore. Built-up area 1594 sqft. Approx 3 BHK, 2 bath. Listed by Eken Properties (ref O90501640).",11.079,77.001,"https://images.unsplash.com/photo-1600210492486-724fe5c67fb0?auto=format&fit=crop&w=800&q=70"],
       ["eken-L89014970","5 BHK Apartment in P And K West Gate","buy","resale","Coimbatore","Saravanampatti","641035",25000000,5,4,6135,"Residential Apartment at P And K West Gate, Saravanampatti, Coimbatore. Built-up area 6135 sqft. Approx 5 BHK, 4 bath. Listed by Eken Properties (ref L89014970).",11.079,77.001,"https://images.unsplash.com/photo-1560448204-e02f11c3d0e2?auto=format&fit=crop&w=800&q=70"]
     ];
+    // Insert only missing listings: the DB is the source of truth once an admin has
+    // edited photos/video, so re-inserting on every boot would wipe their changes.
+    // Seed rows no longer in the list above (e.g. the old demo listings) are removed.
+    await this.q("DELETE FROM properties WHERE posted_by = 'seed' AND NOT (id = ANY($1))", [seeds.map(s => s[0])]);
     for (const s of seeds) {
       await this.q(`INSERT INTO properties (id,title,type,category,city,area,pincode,price_inr,beds,baths,sqft,description,lat,lng,img,posted_by,role)
-        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,'seed','seed')`, s);
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,'seed','seed')
+        ON CONFLICT (id) DO NOTHING`, s);
     }
     console.log("Seeded", seeds.length, "properties");
   }

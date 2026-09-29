@@ -1,4 +1,4 @@
-import { Controller, Delete, Get, Param, Post, Query, Body, Req, Res, HttpException } from "@nestjs/common";
+import { Controller, Delete, Get, Param, Patch, Post, Query, Body, Req, Res, HttpException } from "@nestjs/common";
 import { DbService } from "./db.service";
 import { GeoService } from "./geo.service";
 
@@ -130,6 +130,22 @@ export class PropertiesController {
         body.desc, body.img || body.photos?.[0] || `https://picsum.photos/seed/${id}/800/500`,
         JSON.stringify(body.photos || []), body.video || null, user.email, listingRole, lat, lng]);
     return { id };
+  }
+
+  // Admin: replace a listing's photos (first one becomes the cover) and video.
+  @Patch("properties/:id/media")
+  async updateMedia(@Param("id") id: string, @Body() body: any, @Req() req: any) {
+    const user = await this.db.userFromRequest(req);
+    if (!user) throw err(401, "Login required");
+    if (user.role !== "admin") throw err(403, "Admins only");
+    const { rows: [row] } = await this.db.q("SELECT img FROM properties WHERE id = $1", [id]);
+    if (!row) throw err(404, "Not found");
+    const photos: string[] = Array.isArray(body.photos) ? body.photos.filter((x: any) => typeof x === "string" && x) : [];
+    if (photos.length > 12) throw err(400, "Max 12 photos");
+    const video = typeof body.video === "string" && body.video ? body.video : null;
+    await this.db.q("UPDATE properties SET photos = $1, img = $2, video = $3 WHERE id = $4",
+      [JSON.stringify(photos), photos[0] || row.img, video, id]);
+    return { ok: true };
   }
 
   @Delete("properties/:id")

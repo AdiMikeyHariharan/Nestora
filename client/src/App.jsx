@@ -10,6 +10,7 @@ import Property from "./pages/Property.jsx";
 import Post from "./pages/Post.jsx";
 import Login from "./pages/Login.jsx";
 import Account from "./pages/Account.jsx";
+import Admin from "./pages/Admin.jsx";
 import NotFound from "./pages/NotFound.jsx";
 
 export function Logo({ dark }) {
@@ -60,6 +61,9 @@ function Header() {
             {Object.keys(NESTORA.rates).map(c => <option key={c} value={c}>{c}</option>)}
           </select>
           {user ? (<>
+            {user.role === "admin" && (
+              <Link to="/admin" className="rounded-xl bg-amber-500 px-4 py-1.5 text-sm font-bold text-white hover:bg-amber-600">Admin</Link>
+            )}
             <Link to="/account" className="rounded-xl border border-slate-200 bg-white px-4 py-1.5 text-sm font-bold text-emerald-700 hover:border-emerald-400">
               Hi, {user.name.split(" ")[0]}
             </Link>
@@ -144,6 +148,7 @@ export default function App() {
         <Route path="/post" element={<Post />} />
         <Route path="/login" element={<Login />} />
         <Route path="/account" element={<Account />} />
+        <Route path="/admin" element={<Admin />} />
         <Route path="*" element={<NotFound />} />
       </Routes>
       <Footer />

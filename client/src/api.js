@@ -28,6 +28,7 @@ export const api = {
   },
   get(p) { return this.call(p); },
   post(p, body) { return this.call(p, { method: "POST", body }); },
+  patch(p, body) { return this.call(p, { method: "PATCH", body }); },
   del(p) { return this.call(p, { method: "DELETE" }); }
 };
 
