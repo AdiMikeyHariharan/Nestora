@@ -1,5 +1,6 @@
 import { Body, Controller, Post, Req, HttpException } from "@nestjs/common";
 import { DbService } from "./db.service";
+import { GROQ_MODEL } from "./account.controller";
 import { GoogleGenAI } from "@google/genai";
 import * as crypto from "node:crypto";
 
@@ -39,7 +40,7 @@ export class ChatbotController {
       method: "POST",
       headers: { Authorization: `Bearer ${process.env.GROQ_API_KEY}`, "Content-Type": "application/json" },
       body: JSON.stringify({
-        model: "llama-3.3-70b-versatile",
+        model: GROQ_MODEL,
         messages,
         temperature: json ? 0.1 : 0.3,
         max_tokens: 500,

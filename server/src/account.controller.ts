@@ -7,6 +7,9 @@ const err = (code: number, msg: string) => new HttpException({ error: msg }, cod
 // Free while we collect data/leads. Set VISIT_FEE_INR > 0 (env) to re-enable the
 // refundable site-visit token + checkout flow — the payment plumbing stays intact.
 const VISIT_FEE_INR = parseInt(process.env.VISIT_FEE_INR || "0", 10);
+// Groq retires models periodically (llama-3.3-70b-versatile was decommissioned and
+// broke chat in production). Override with GROQ_MODEL instead of editing code.
+export const GROQ_MODEL = process.env.GROQ_MODEL || "qwen/qwen3.8-27b";
 
 // "2026-07-19, Morning (10am–12pm)" -> { start:"2026-07-19T10:00:00", end:"...T11:00:00" }
 function visitWindow(datePref: string): { startISO: string; endISO: string } | null {
@@ -145,7 +148,7 @@ When recommending homes, end with a line: PROPS:<comma-separated ids> so the UI 
           method: "POST",
           headers: { Authorization: `Bearer ${groqKey}`, "Content-Type": "application/json" },
           body: JSON.stringify({
-            model: "llama-3.3-70b-versatile", max_tokens: 600, temperature: 0.3,
+            model: GROQ_MODEL, max_tokens: 600, temperature: 0.3,
             messages: [{ role: "system", content: system }, ...recent]
           })
         });
