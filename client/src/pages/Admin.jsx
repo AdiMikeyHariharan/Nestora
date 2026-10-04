@@ -122,6 +122,106 @@ function MediaEditor({ property, onClose, onSaved }) {
   );
 }
 
+const fieldCls = "w-full rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 text-sm outline-none focus:ring-2 focus:ring-emerald-500";
+const lbl = "block text-xs font-bold text-slate-600";
+
+function DetailsEditor({ property: p, onClose, onSaved }) {
+  const { toast } = useApp();
+  const [busy, setBusy] = useState(false);
+  const [f, setF] = useState({
+    title: p.title || "", type: p.type || "buy", category: p.category || "resale",
+    priceINR: p.priceINR ?? "", city: p.city || "", area: p.area || "", pincode: p.pincode || "",
+    beds: p.beds ?? 0, baths: p.baths ?? 0, sqft: p.sqft ?? "", desc: p.desc || "",
+    furnishing: p.furnishing || "unfurnished", role: p.role === "realtor" ? "realtor" : "owner"
+  });
+  const set = (k, v) => setF(s => ({ ...s, [k]: v }));
+
+  const save = async e => {
+    e.preventDefault();
+    setBusy(true);
+    try {
+      await api.patch(`/properties/${p.id}`, f);
+      toast("Listing updated ✔");
+      onSaved();
+    } catch (err) { toast(err.message); }
+    setBusy(false);
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 p-4 backdrop-blur-sm">
+      <form onSubmit={save} className="max-h-[90vh] w-[min(760px,100%)] overflow-y-auto rounded-3xl bg-white p-6 shadow-2xl">
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <h3 className="text-lg font-extrabold tracking-tight">Edit listing</h3>
+            <p className="text-xs text-slate-400">{p.id}</p>
+          </div>
+          <button type="button" onClick={onClose} className="rounded-lg px-3 py-1 text-sm font-bold text-slate-500 hover:bg-slate-100">Close</button>
+        </div>
+
+        <div className="mt-5 grid gap-4 sm:grid-cols-2">
+          <label className={lbl + " sm:col-span-2"}>Title
+            <input className={fieldCls + " mt-1.5"} required maxLength={80} value={f.title} onChange={e => set("title", e.target.value)} />
+          </label>
+          <label className={lbl}>Listing for
+            <select className={fieldCls + " mt-1.5"} value={f.type} onChange={e => set("type", e.target.value)}>
+              <option value="buy">Sale</option><option value="rent">Rent</option>
+            </select>
+          </label>
+          <label className={lbl}>{f.type === "rent" ? "Monthly rent (₹)" : "Price (₹)"}
+            <input className={fieldCls + " mt-1.5"} type="number" min="1" required value={f.priceINR} onChange={e => set("priceINR", e.target.value)} />
+            {+f.priceINR > 0 && <span className="mt-1 block font-medium text-emerald-700">{fmtPrice(+f.priceINR, f.type === "rent", "INR")}</span>}
+          </label>
+          <label className={lbl}>Resale or New
+            <select className={fieldCls + " mt-1.5"} value={f.category} onChange={e => set("category", e.target.value)}>
+              <option value="resale">Resale</option><option value="new">New Project</option>
+            </select>
+          </label>
+          <label className={lbl}>Posted by
+            <select className={fieldCls + " mt-1.5"} value={f.role} onChange={e => set("role", e.target.value)}>
+              <option value="owner">Owner</option><option value="realtor">Dealer / Realtor</option>
+            </select>
+          </label>
+          <label className={lbl}>City
+            <input className={fieldCls + " mt-1.5"} required value={f.city} onChange={e => set("city", e.target.value)} />
+          </label>
+          <label className={lbl}>Area / Locality
+            <input className={fieldCls + " mt-1.5"} required value={f.area} onChange={e => set("area", e.target.value)} />
+          </label>
+          <label className={lbl}>Pincode
+            <input className={fieldCls + " mt-1.5"} required pattern="[0-9]{6}" maxLength={6} inputMode="numeric" value={f.pincode} onChange={e => set("pincode", e.target.value)} />
+          </label>
+          <label className={lbl}>Built-up area (sqft)
+            <input className={fieldCls + " mt-1.5"} type="number" min="1" required value={f.sqft} onChange={e => set("sqft", e.target.value)} />
+          </label>
+          <label className={lbl}>Bedrooms (0 for plots / commercial)
+            <select className={fieldCls + " mt-1.5"} value={f.beds} onChange={e => set("beds", e.target.value)}>
+              {[0, 1, 1.5, 2, 2.5, 3, 4, 5, 6].map(n => <option key={n} value={n}>{n === 0 ? "None" : `${n} BHK`}</option>)}
+            </select>
+          </label>
+          <label className={lbl}>Bathrooms
+            <select className={fieldCls + " mt-1.5"} value={f.baths} onChange={e => set("baths", e.target.value)}>
+              {[0, 1, 2, 3, 4, 5, 6].map(n => <option key={n} value={n}>{n === 0 ? "None" : n}</option>)}
+            </select>
+          </label>
+          <label className={lbl}>Furnishing
+            <select className={fieldCls + " mt-1.5"} value={f.furnishing} onChange={e => set("furnishing", e.target.value)}>
+              <option value="unfurnished">Unfurnished</option><option value="semi">Semi-furnished</option><option value="furnished">Furnished</option>
+            </select>
+          </label>
+          <label className={lbl + " sm:col-span-2"}>Description
+            <textarea className={fieldCls + " mt-1.5 min-h-[110px] resize-y"} required value={f.desc} onChange={e => set("desc", e.target.value)} />
+          </label>
+        </div>
+
+        <button
+          disabled={busy}
+          className="mt-6 w-full rounded-xl bg-gradient-to-r from-emerald-600 to-teal-500 py-3 font-bold text-white shadow-lg shadow-emerald-600/25 hover:brightness-110 disabled:opacity-70"
+        >{busy ? "Saving…" : "Save changes"}</button>
+      </form>
+    </div>
+  );
+}
+
 export default function Admin() {
   usePageMeta({ title: "Admin", noIndex: true });
   const { user } = useApp();
@@ -129,6 +229,7 @@ export default function Admin() {
   const [loading, setLoading] = useState(true);
   const [q, setQ] = useState("");
   const [editing, setEditing] = useState(null);
+  const [editingDetails, setEditingDetails] = useState(null);
 
   const load = () => api.get("/properties").then(d => setList(d.properties)).catch(() => {}).finally(() => setLoading(false));
   useEffect(() => { if (user?.role === "admin") load(); }, [user]);
@@ -172,11 +273,20 @@ export default function Admin() {
               </div>
               <span className="hidden text-xs text-slate-400 sm:block">{p.photos?.length || 0} photos{p.video ? " · video" : ""}</span>
               <Link to={`/property/${p.id}`} className="hidden rounded-lg px-3 py-1.5 text-xs font-bold text-slate-500 hover:bg-slate-100 sm:block">View</Link>
+              <button onClick={() => setEditingDetails(p)} className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-bold text-slate-700 hover:border-emerald-400 hover:text-emerald-700">Edit details</button>
               <button onClick={() => setEditing(p)} className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-bold text-slate-700 hover:border-emerald-400 hover:text-emerald-700">Manage media</button>
             </div>
           ))}
           {!shown.length && <p className="p-6 text-center text-sm text-slate-400">No listings match.</p>}
         </div>
+      )}
+
+      {editingDetails && (
+        <DetailsEditor
+          property={editingDetails}
+          onClose={() => setEditingDetails(null)}
+          onSaved={() => { setEditingDetails(null); load(); }}
+        />
       )}
 
       {editing && (

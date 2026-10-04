@@ -132,6 +132,44 @@ export class PropertiesController {
     return { id };
   }
 
+  // Admin: edit a listing's details.
+  @Patch("properties/:id")
+  async updateDetails(@Param("id") id: string, @Body() body: any, @Req() req: any) {
+    const user = await this.db.userFromRequest(req);
+    if (!user) throw err(401, "Login required");
+    if (user.role !== "admin") throw err(403, "Admins only");
+    const { rows: [row] } = await this.db.q("SELECT city, area, lat, lng FROM properties WHERE id = $1", [id]);
+    if (!row) throw err(404, "Not found");
+
+    const text = (k: string) => String(body[k] ?? "").trim();
+    const num = (k: string) => Number(body[k]);
+    const title = text("title"), city = text("city"), area = text("area"), pincode = text("pincode"), desc = text("desc");
+    if (!title || !city || !area || !desc) throw err(400, "Title, city, area and description are required");
+    if (!/^\d{6}$/.test(pincode)) throw err(400, "Pincode must be 6 digits");
+    if (!["buy", "rent"].includes(body.type)) throw err(400, "Type must be buy or rent");
+    if (!["resale", "new"].includes(body.category)) throw err(400, "Category must be resale or new");
+    if (!["owner", "realtor"].includes(body.role)) throw err(400, "Posted by must be owner or realtor");
+    if (!["unfurnished", "semi", "furnished"].includes(body.furnishing)) throw err(400, "Invalid furnishing");
+    const price = Math.round(num("priceINR")), sqft = Math.round(num("sqft")), beds = num("beds"), baths = Math.round(num("baths"));
+    if (!(price > 0) || !(sqft > 0)) throw err(400, "Price and size must be positive numbers");
+    if (!(beds >= 0) || !(baths >= 0)) throw err(400, "Bedrooms and bathrooms can't be negative");
+
+    // Map/landmark search depends on coordinates, so re-geocode when the locality moves.
+    let lat = row.lat, lng = row.lng;
+    if (city.toLowerCase() !== (row.city || "").toLowerCase() || area.toLowerCase() !== (row.area || "").toLowerCase()) {
+      try {
+        const g = await this.geo.geocode(`${area}, ${city}, India`);
+        if (g[0]) { lat = g[0].lat; lng = g[0].lng; }
+      } catch { /* keep the old coordinates */ }
+    }
+
+    await this.db.q(`UPDATE properties SET title=$1, type=$2, category=$3, city=$4, area=$5, pincode=$6, price_inr=$7,
+      beds=$8, baths=$9, sqft=$10, description=$11, furnishing=$12, role=$13, lat=$14, lng=$15 WHERE id=$16`,
+      [title, body.type, body.category, city, area, pincode, price, beds, baths, sqft, desc, body.furnishing, body.role, lat, lng, id]);
+    const { rows: [updated] } = await this.db.q("SELECT * FROM properties WHERE id = $1", [id]);
+    return { property: this.db.toApiProp(updated) };
+  }
+
   // Admin: replace a listing's photos (first one becomes the cover) and video.
   @Patch("properties/:id/media")
   async updateMedia(@Param("id") id: string, @Body() body: any, @Req() req: any) {
