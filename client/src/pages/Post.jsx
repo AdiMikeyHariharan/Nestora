@@ -4,6 +4,7 @@ import { motion } from "motion/react";
 import { api } from "../api.js";
 import { useApp } from "../store.jsx";
 import { usePageMeta } from "../seo.js";
+import { PROPERTY_TYPES, hasRooms } from "../lib/propertyTypes.js";
 
 const DRAFT_KEY = "nst_post_draft";
 const readAsDataURL = f => new Promise(res => { const r = new FileReader(); r.onload = () => res(r.result); r.readAsDataURL(f); });
@@ -25,6 +26,7 @@ export default function Post() {
     const base = {
       // Agents list as realtors — the server enforces this, so don't offer "Owner".
       role: user?.role === "agent" ? "realtor" : "owner",
+      segment: "residential", propertyType: "Apartment",
       type: "buy", category: "resale", price: "", title: "", desc: "",
       city: "", area: "", pincode: "", sqft: "", beds: "2", baths: "2"
     };
@@ -169,6 +171,17 @@ export default function Post() {
                 <option value="realtor">Realtor / Mediator</option>
               </select>
             </label>
+            <label className={lbl}>Residential or Commercial
+              <select className={fieldCls + " mt-1.5"} value={form.segment}
+                onChange={e => setForm(f => ({ ...f, segment: e.target.value, propertyType: PROPERTY_TYPES[e.target.value][0] }))}>
+                <option value="residential">Residential</option><option value="commercial">Commercial</option>
+              </select>
+            </label>
+            <label className={lbl}>Property type
+              <select className={fieldCls + " mt-1.5"} value={form.propertyType} onChange={e => set("propertyType", e.target.value)}>
+                {PROPERTY_TYPES[form.segment].map(t => <option key={t}>{t}</option>)}
+              </select>
+            </label>
             <label className={lbl}>Listing for
               <select className={fieldCls + " mt-1.5"} value={form.type} onChange={e => set("type", e.target.value)}>
                 <option value="buy">Sale</option><option value="rent">Rent</option>
@@ -200,12 +213,14 @@ export default function Post() {
             <label className={lbl}>Built-up area (sqft)
               <input className={fieldCls + " mt-1.5"} type="number" min="1" required value={form.sqft} onChange={e => set("sqft", e.target.value)} placeholder="e.g. 1200" />
             </label>
-            <label className={lbl}>Bedrooms
-              <select className={fieldCls + " mt-1.5"} value={form.beds} onChange={e => set("beds", e.target.value)}>{["1", "1.5", "2", "2.5", "3", "4", "5"].map(n => <option key={n} value={n}>{n} BHK</option>)}</select>
-            </label>
-            <label className={lbl}>Bathrooms
-              <select className={fieldCls + " mt-1.5"} value={form.baths} onChange={e => set("baths", e.target.value)}>{[1, 2, 3, 4].map(n => <option key={n}>{n}</option>)}</select>
-            </label>
+            {hasRooms(form.segment, form.propertyType) && (<>
+              <label className={lbl}>Bedrooms
+                <select className={fieldCls + " mt-1.5"} value={form.beds} onChange={e => set("beds", e.target.value)}>{["1", "1.5", "2", "2.5", "3", "4", "5"].map(n => <option key={n} value={n}>{n} BHK</option>)}</select>
+              </label>
+              <label className={lbl}>Bathrooms
+                <select className={fieldCls + " mt-1.5"} value={form.baths} onChange={e => set("baths", e.target.value)}>{[1, 2, 3, 4].map(n => <option key={n}>{n}</option>)}</select>
+              </label>
+            </>)}
 
             <div className="sm:col-span-2">
               <span className={lbl}>Add pictures</span>

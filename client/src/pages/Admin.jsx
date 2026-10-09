@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import { api, fmtPrice } from "../api.js";
 import { useApp } from "../store.jsx";
 import { usePageMeta } from "../seo.js";
+import { PROPERTY_TYPES } from "../lib/propertyTypes.js";
 
 const MAX_PHOTOS = 12;
 const MAX_VIDEO_MB = 20; // base64 adds ~33%, and the server accepts 30 MB bodies
@@ -132,8 +133,11 @@ function DetailsEditor({ property: p, onClose, onSaved }) {
     title: p.title || "", type: p.type || "buy", category: p.category || "resale",
     priceINR: p.priceINR ?? "", city: p.city || "", area: p.area || "", pincode: p.pincode || "",
     beds: p.beds ?? 0, baths: p.baths ?? 0, sqft: p.sqft ?? "", desc: p.desc || "",
-    furnishing: p.furnishing || "unfurnished", role: p.role === "realtor" ? "realtor" : "owner"
+    furnishing: p.furnishing || "unfurnished", role: p.role === "realtor" ? "realtor" : "owner",
+    segment: p.segment === "commercial" ? "commercial" : "residential",
+    propertyType: p.propertyType || ""
   });
+  const types = PROPERTY_TYPES[f.segment];
   const set = (k, v) => setF(s => ({ ...s, [k]: v }));
 
   const save = async e => {
@@ -161,6 +165,18 @@ function DetailsEditor({ property: p, onClose, onSaved }) {
         <div className="mt-5 grid gap-4 sm:grid-cols-2">
           <label className={lbl + " sm:col-span-2"}>Title
             <input className={fieldCls + " mt-1.5"} required maxLength={80} value={f.title} onChange={e => set("title", e.target.value)} />
+          </label>
+          <label className={lbl}>Residential or Commercial
+            <select className={fieldCls + " mt-1.5"} value={f.segment}
+              onChange={e => setF(s => ({ ...s, segment: e.target.value, propertyType: PROPERTY_TYPES[e.target.value][0] }))}>
+              <option value="residential">Residential</option><option value="commercial">Commercial</option>
+            </select>
+          </label>
+          <label className={lbl}>Property type
+            <select className={fieldCls + " mt-1.5"} required value={f.propertyType} onChange={e => set("propertyType", e.target.value)}>
+              {!types.includes(f.propertyType) && <option value="">Choose…</option>}
+              {types.map(t => <option key={t}>{t}</option>)}
+            </select>
           </label>
           <label className={lbl}>Listing for
             <select className={fieldCls + " mt-1.5"} value={f.type} onChange={e => set("type", e.target.value)}>
@@ -269,7 +285,7 @@ export default function Admin() {
               <img src={p.img} alt={p.title} loading="lazy" className="h-14 w-20 shrink-0 rounded-lg object-cover" />
               <div className="min-w-0 flex-1">
                 <p className="truncate text-sm font-bold">{p.title}</p>
-                <p className="truncate text-xs text-slate-500">{p.area}, {p.city} · {fmtPrice(p.priceINR, p.type === "rent", "INR")}</p>
+                <p className="truncate text-xs text-slate-500">{p.propertyType || "No type"} · {p.area}, {p.city} · {fmtPrice(p.priceINR, p.type === "rent", "INR")}</p>
               </div>
               <span className="hidden text-xs text-slate-400 sm:block">{p.photos?.length || 0} photos{p.video ? " · video" : ""}</span>
               <Link to={`/property/${p.id}`} className="hidden rounded-lg px-3 py-1.5 text-xs font-bold text-slate-500 hover:bg-slate-100 sm:block">View</Link>

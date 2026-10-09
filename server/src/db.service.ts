@@ -32,6 +32,8 @@ export class DbService implements OnModuleInit {
         created_at TIMESTAMPTZ DEFAULT now()
       );
       ALTER TABLE properties ADD COLUMN IF NOT EXISTS furnishing TEXT DEFAULT 'unfurnished';
+      ALTER TABLE properties ADD COLUMN IF NOT EXISTS segment TEXT;
+      ALTER TABLE properties ADD COLUMN IF NOT EXISTS property_type TEXT;
       DO $$ BEGIN
         IF (SELECT data_type FROM information_schema.columns WHERE table_name='properties' AND column_name='beds') = 'integer' THEN
           ALTER TABLE properties ALTER COLUMN beds TYPE REAL;
@@ -73,6 +75,7 @@ export class DbService implements OnModuleInit {
       );
     `);
     await this.seed();
+    await this.backfillPropertyTypes();
     await this.ensureAdmin();
   }
 
@@ -87,6 +90,32 @@ export class DbService implements OnModuleInit {
        ON CONFLICT (email) DO UPDATE SET password = $2, role = 'admin', verified = TRUE, onboarded = TRUE`,
       [email, this.hashPassword(password)]);
     console.log("Admin account ready:", email);
+  }
+
+  // Listings created before residential/commercial existed get classified once.
+  // Seed rows carry the original 99acres type at the start of their description;
+  // for user posts only the title is trusted (a description may mention "near a shop").
+  private async backfillPropertyTypes() {
+    await this.q(`
+      UPDATE properties SET property_type = CASE
+        WHEN src ~* 'co-?working' THEN 'Co-working'
+        WHEN src ~* 'warehouse' THEN 'Warehouse'
+        WHEN src ~* 'showroom' THEN 'Showroom'
+        WHEN src ~* '\\mshops?\\M' THEN 'Shop'
+        WHEN src ~* 'office' THEN 'Office'
+        WHEN src ~* 'studio' THEN 'Studio'
+        WHEN src ~* 'villa' THEN 'Villa'
+        WHEN src ~* 'apartment|\\mflat\\M|penthouse' THEN 'Apartment'
+        WHEN src ~* 'plot|\\mland\\M' THEN 'Plot'
+        WHEN src ~* 'house' THEN 'Independent House'
+      END
+      FROM (SELECT id AS pid, CASE WHEN posted_by = 'seed' THEN description ELSE title END AS src FROM properties) s
+      WHERE properties.id = s.pid AND properties.property_type IS NULL`);
+    await this.q(`
+      UPDATE properties SET segment = CASE
+        WHEN property_type IN ('Office','Shop','Showroom','Warehouse','Co-working','Commercial Land') THEN 'commercial'
+        ELSE 'residential' END
+      WHERE segment IS NULL`);
   }
 
   private async seed() {
@@ -232,7 +261,7 @@ export class DbService implements OnModuleInit {
   publicUser(u: any) { return { name: u.name, email: u.email, role: u.role, phone: u.phone, verified: !!u.verified }; }
 
   toApiProp(row: any) {
-    const { price_inr, description, posted_by, created_at, ...rest } = row;
-    return { ...rest, priceINR: Number(price_inr), desc: description, postedBy: posted_by, createdAt: created_at };
+    const { price_inr, description, posted_by, created_at, property_type, ...rest } = row;
+    return { ...rest, priceINR: Number(price_inr), desc: description, postedBy: posted_by, createdAt: created_at, propertyType: property_type };
   }
 }

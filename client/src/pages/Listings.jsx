@@ -6,6 +6,7 @@ import MapPanel from "../components/MapPanel.jsx";
 import GeoSearch from "../components/GeoSearch.jsx";
 import { SkeletonGrid } from "../components/Skeleton.jsx";
 import { usePageMeta } from "../seo.js";
+import { PROPERTY_TYPES } from "../lib/propertyTypes.js";
 
 const fieldCls = "w-full rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 text-sm outline-none focus:ring-2 focus:ring-emerald-500";
 const lbl = "block text-[11px] font-bold uppercase tracking-wide text-slate-500";
@@ -14,7 +15,6 @@ const chipCls = active =>
     active ? "border-emerald-600 bg-emerald-600 text-white" : "border-slate-200 bg-white text-slate-500 hover:border-emerald-400 hover:text-emerald-700"
   }`;
 
-const PROPERTY_TYPES = ["Apartment", "Villa", "House", "Plot", "Commercial", "PG/Hostel"];
 const AMENITIES = ["Parking", "Lift", "Gym", "Swimming Pool", "Security", "Power Backup", "Pet Friendly"];
 const HISTOGRAM_BUCKETS = 20;
 
@@ -149,6 +149,7 @@ export default function Listings() {
     minBudget: params.get("minBudget") || "",
     budget: params.get("budget") || "",
     furnishing: params.get("furnishing") || "",
+    segment: params.get("segment") || "",
     propertyType: params.get("propertyType") || "",
     availability: params.get("availability") || "",
     postedWithin: params.get("postedWithin") || "",
@@ -239,7 +240,7 @@ export default function Listings() {
   const resetFilters = () => {
     setForm({
       q: "", pincode: "", type: "", category: "", minBudget: "", budget: "",
-      furnishing: "", propertyType: "", availability: "", postedWithin: "", amenities: [],
+      furnishing: "", segment: "", propertyType: "", availability: "", postedWithin: "", amenities: [],
     });
     setParams(new URLSearchParams());
   };
@@ -276,7 +277,7 @@ export default function Listings() {
   const saveSearch = () => {
     const qs = params.toString();
     if (!qs) return;
-    const bits = [params.get("beds") && params.get("beds") + " BHK", params.get("propertyType") || params.get("type"),
+    const bits = [params.get("beds") && params.get("beds") + " BHK", params.get("propertyType") || params.get("segment") || params.get("type"),
       params.get("q") || (landmarkName && "near " + landmarkName.split(",")[0]),
       params.get("furnishing"), params.get("budget") && "≤₹" + (+params.get("budget")).toLocaleString("en-IN")
     ].filter(Boolean);
@@ -364,10 +365,21 @@ export default function Listings() {
           </div>
         </label>
 
+        <label className={lbl + " mt-4 block"}>Residential / Commercial
+          <select className={fieldCls + " mt-1.5"} value={form.segment}
+            onChange={e => setForm({ ...form, segment: e.target.value, propertyType: "" })}>
+            <option value="">Any</option><option value="residential">Residential</option><option value="commercial">Commercial</option>
+          </select>
+        </label>
+
         <label className={lbl + " mt-4 block"}>Property type
           <select className={fieldCls + " mt-1.5"} value={form.propertyType} onChange={e => setForm({ ...form, propertyType: e.target.value })}>
             <option value="">Any</option>
-            {PROPERTY_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
+            {(form.segment ? [form.segment] : ["residential", "commercial"]).map(seg => (
+              <optgroup key={seg} label={seg === "residential" ? "Residential" : "Commercial"}>
+                {PROPERTY_TYPES[seg].map(t => <option key={t} value={t}>{t}</option>)}
+              </optgroup>
+            ))}
           </select>
         </label>
 

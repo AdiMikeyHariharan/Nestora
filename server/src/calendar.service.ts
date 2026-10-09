@@ -28,8 +28,12 @@ export class CalendarService implements OnModuleInit {
     )`);
   }
 
+  // Off unless CALENDAR_ENABLED=true. The OAuth client is shared with Google SSO, so
+  // having its keys doesn't mean the calendar redirect URI is registered — offering the
+  // button before that is done sends sellers to Google's redirect_uri_mismatch error.
   get configured() {
-    return !!(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET);
+    return process.env.CALENDAR_ENABLED === "true" &&
+      !!(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET);
   }
 
   async isConnected(email: string): Promise<boolean> {

@@ -133,7 +133,9 @@ export default function Property() {
             <p className="mt-2.5 leading-relaxed text-slate-500">{p.desc}</p>
             <div className="mt-5 grid gap-3 sm:grid-cols-2">
               {[["Type", `${isRent ? "For Rent" : "For Sale"} · ${p.category === "new" ? "New Project" : "Resale"}`],
-                ["Configuration", `${p.beds} BHK · ${p.baths} Bath`],
+                p.beds > 0
+                  ? ["Configuration", `${p.beds} BHK · ${p.baths} Bath`]
+                  : ["Property", `${p.segment === "commercial" ? "Commercial" : "Residential"} · ${p.propertyType || "—"}`],
                 ["Built-up area", `${p.sqft} sqft`],
                 ["Pincode", p.pincode]].map(([k, v]) => (
                 <div key={k} className="rounded-xl bg-slate-50 p-3.5">

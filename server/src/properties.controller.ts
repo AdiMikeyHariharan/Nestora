@@ -1,6 +1,7 @@
 import { Controller, Delete, Get, Param, Patch, Post, Query, Body, Req, Res, HttpException } from "@nestjs/common";
 import { DbService } from "./db.service";
 import { GeoService } from "./geo.service";
+import { checkSegmentType } from "./property-types";
 
 const err = (code: number, msg: string) => new HttpException({ error: msg }, code);
 
@@ -66,6 +67,8 @@ export class PropertiesController {
     if (p.minBudget) add("price_inr >= ?", parseInt(p.minBudget, 10));
     if (p.beds) add("beds = ?", parseFloat(p.beds));
     if (p.furnishing) add("furnishing = ?", p.furnishing);
+    if (p.segment) add("segment = ?", p.segment);
+    if (p.propertyType) add("property_type = ?", p.propertyType);
     const { rows } = await this.db.q(
       `SELECT * FROM properties ${where.length ? "WHERE " + where.join(" AND ") : ""} ORDER BY created_at DESC`, params);
     let list = rows.map(r => this.db.toApiProp(r));
@@ -109,6 +112,9 @@ export class PropertiesController {
     if (!user.verified) throw err(403, "Verify your email first");
     for (const f of ["title", "type", "category", "city", "area", "pincode", "priceINR", "beds", "baths", "sqft", "desc"])
       if (body[f] === undefined || body[f] === "") throw err(400, "Missing field: " + f);
+    const segment = body.segment || "residential";
+    const segErr = checkSegmentType(segment, body.propertyType);
+    if (segErr) throw err(400, segErr);
     const id = this.db.uid("prop");
     // best-effort geocode of the locality so the listing appears in geo search
     let lat = body.lat ?? null, lng = body.lng ?? null;
@@ -123,12 +129,12 @@ export class PropertiesController {
     // owner-posted. Normalise: agents always post as realtors.
     const listingRole = user.role === "agent" ? "realtor"
       : body.role === "realtor" ? "realtor" : "owner";
-    await this.db.q(`INSERT INTO properties (id,title,type,category,city,area,pincode,price_inr,beds,baths,sqft,description,img,photos,video,posted_by,role,lat,lng,furnishing)
-      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,${["unfurnished", "semi", "furnished"].includes(body.furnishing) ? "'" + body.furnishing + "'" : "'unfurnished'"})`,
+    await this.db.q(`INSERT INTO properties (id,title,type,category,city,area,pincode,price_inr,beds,baths,sqft,description,img,photos,video,posted_by,role,lat,lng,segment,property_type,furnishing)
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,${["unfurnished", "semi", "furnished"].includes(body.furnishing) ? "'" + body.furnishing + "'" : "'unfurnished'"})`,
       [id, body.title, body.type, body.category, body.city, body.area, body.pincode,
         parseInt(body.priceINR, 10), parseFloat(body.beds), parseInt(body.baths, 10), parseInt(body.sqft, 10),
         body.desc, body.img || body.photos?.[0] || `https://picsum.photos/seed/${id}/800/500`,
-        JSON.stringify(body.photos || []), body.video || null, user.email, listingRole, lat, lng]);
+        JSON.stringify(body.photos || []), body.video || null, user.email, listingRole, lat, lng, segment, body.propertyType]);
     return { id };
   }
 
@@ -150,6 +156,8 @@ export class PropertiesController {
     if (!["resale", "new"].includes(body.category)) throw err(400, "Category must be resale or new");
     if (!["owner", "realtor"].includes(body.role)) throw err(400, "Posted by must be owner or realtor");
     if (!["unfurnished", "semi", "furnished"].includes(body.furnishing)) throw err(400, "Invalid furnishing");
+    const segErr = checkSegmentType(body.segment, body.propertyType);
+    if (segErr) throw err(400, segErr);
     const price = Math.round(num("priceINR")), sqft = Math.round(num("sqft")), beds = num("beds"), baths = Math.round(num("baths"));
     if (!(price > 0) || !(sqft > 0)) throw err(400, "Price and size must be positive numbers");
     if (!(beds >= 0) || !(baths >= 0)) throw err(400, "Bedrooms and bathrooms can't be negative");
@@ -164,8 +172,9 @@ export class PropertiesController {
     }
 
     await this.db.q(`UPDATE properties SET title=$1, type=$2, category=$3, city=$4, area=$5, pincode=$6, price_inr=$7,
-      beds=$8, baths=$9, sqft=$10, description=$11, furnishing=$12, role=$13, lat=$14, lng=$15 WHERE id=$16`,
-      [title, body.type, body.category, city, area, pincode, price, beds, baths, sqft, desc, body.furnishing, body.role, lat, lng, id]);
+      beds=$8, baths=$9, sqft=$10, description=$11, furnishing=$12, role=$13, lat=$14, lng=$15, segment=$16, property_type=$17 WHERE id=$18`,
+      [title, body.type, body.category, city, area, pincode, price, beds, baths, sqft, desc, body.furnishing, body.role, lat, lng,
+        body.segment, body.propertyType, id]);
     const { rows: [updated] } = await this.db.q("SELECT * FROM properties WHERE id = $1", [id]);
     return { property: this.db.toApiProp(updated) };
   }

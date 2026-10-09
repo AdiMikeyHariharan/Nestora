@@ -51,6 +51,11 @@ export default function PropertyCard({ p, delay = 0 }) {
         <Link to={`/property/${p.id}`} className="font-bold text-slate-900 hover:text-emerald-700">{p.title}</Link>
         <div className="inline-flex items-center gap-1.5 text-sm text-slate-500"><PinIcon size={13} className="shrink-0 text-slate-400" /> {p.area}, {p.city} · {p.pincode}</div>
         <div className="mt-1 flex flex-wrap items-center gap-2 text-[11px] font-semibold">
+          {p.propertyType && (
+            <span className={`rounded-md px-2 py-0.5 ${p.segment === "commercial" ? "bg-orange-50 text-orange-700" : "bg-teal-50 text-teal-700"}`}>
+              {p.segment === "commercial" ? `Commercial · ${p.propertyType}` : p.propertyType}
+            </span>
+          )}
           {p.postedBy === "seed" ? (
             <span className="inline-flex items-center gap-1 rounded-md bg-emerald-50 px-2 py-0.5 text-emerald-700">✓ Nestora Verified</span>
           ) : (
@@ -63,8 +68,8 @@ export default function PropertyCard({ p, delay = 0 }) {
           {p.createdAt && <span className="text-slate-400">Posted {(d => d < 1 ? "today" : d < 30 ? Math.round(d) + "d ago" : Math.round(d / 30) + "mo ago")((Date.now() - new Date(p.createdAt)) / 86400000)}</span>}
         </div>
         <div className="mt-2 flex gap-4 border-t border-slate-100 pt-3 text-xs font-semibold text-slate-500">
-          <span className="inline-flex items-center gap-1.5"><BedIcon size={14} className="text-slate-400" /> {p.beds} Beds</span>
-          <span className="inline-flex items-center gap-1.5"><BathIcon size={14} className="text-slate-400" /> {p.baths} Baths</span>
+          {p.beds > 0 && <span className="inline-flex items-center gap-1.5"><BedIcon size={14} className="text-slate-400" /> {p.beds} Beds</span>}
+          {p.baths > 0 && <span className="inline-flex items-center gap-1.5"><BathIcon size={14} className="text-slate-400" /> {p.baths} Baths</span>}
           <span className="inline-flex items-center gap-1.5"><RulerIcon size={14} className="text-slate-400" /> {p.sqft} sqft</span>
         </div>
         <div className="mt-auto flex gap-2 pt-3">
