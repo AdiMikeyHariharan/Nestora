@@ -26,7 +26,14 @@ export class CalendarService implements OnModuleInit {
     await this.db.q(`CREATE TABLE IF NOT EXISTS calendar_tokens (
       email TEXT PRIMARY KEY, refresh_token TEXT, connected_at TIMESTAMPTZ DEFAULT now()
     );
-    ALTER TABLE calendar_tokens ENABLE ROW LEVEL SECURITY`);
+    -- Same rule as db.service: only touch RLS on tables this DB user owns, so boot
+    -- can't fail with "must be owner of table" on a differently-owned database.
+    DO $$ BEGIN
+      IF EXISTS (SELECT 1 FROM pg_tables WHERE schemaname = current_schema()
+                 AND tablename = 'calendar_tokens' AND tableowner = current_user) THEN
+        ALTER TABLE calendar_tokens ENABLE ROW LEVEL SECURITY;
+      END IF;
+    END $$`);
   }
 
   // Off unless CALENDAR_ENABLED=true. The OAuth client is shared with Google SSO, so
