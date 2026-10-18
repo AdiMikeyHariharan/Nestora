@@ -10,7 +10,13 @@ export default function Login() {
   const { login, toast } = useApp();
   const navigate = useNavigate();
   const [params] = useSearchParams();
-  const next = params.get("next") || "/account";
+  // Google sign-in leaves the site, so `next` is parked in sessionStorage and only
+  // picked up when we're back from Google (the #sso / #google_sso fragment).
+  const [next] = useState(() => {
+    let parked = null;
+    try { if (/sso=/.test(window.location.hash)) parked = sessionStorage.getItem("nst_next"); } catch { /* storage blocked */ }
+    return params.get("next") || parked || "/account";
+  });
 
   // ?mode=signup lets other pages (e.g. Post) send people straight to signup.
   const [mode, setMode] = useState(params.get("mode") === "signup" ? "signup" : "login");
@@ -23,27 +29,31 @@ export default function Login() {
   const [otp, setOtp] = useState(Array(6).fill(""));
   const boxRefs = useRef([]);
 
-  // Handle Google SSO redirect back
+  // Handle Google SSO redirect back. Tokens arrive in the #fragment (never sent to
+  // servers or logged); wipe it from the address bar as soon as it's read.
   useEffect(() => {
     const ssoErr = params.get("sso_error");
     if (ssoErr) { toast(ssoErr); return; }
 
-    const googleSso = params.get("google_sso");
+    const hash = new URLSearchParams(window.location.hash.slice(1));
+    if (window.location.hash) window.history.replaceState(null, "", window.location.pathname + window.location.search);
+
+    const googleSso = hash.get("google_sso");
     if (googleSso) {
       setGoogleSsoData({
-        tempToken: params.get("temp_token"),
-        email: params.get("email"),
-        name: decodeURIComponent(params.get("name") || ""),
-        hasPassword: params.get("has_password") === "true"
+        tempToken: hash.get("temp_token"),
+        email: hash.get("email"),
+        name: hash.get("name") || "",
+        hasPassword: hash.get("has_password") === "true"
       });
       setStep("google_confirm");
       return;
     }
 
-    const token = params.get("sso");
+    const token = hash.get("sso");
     if (token) {
       try {
-        const user = JSON.parse(atob(params.get("u").replace(/-/g, "+").replace(/_/g, "/")));
+        const user = JSON.parse(atob(hash.get("u").replace(/-/g, "+").replace(/_/g, "/")));
         login(token, user);
         toast("Signed in with Google ✔");
         navigate(next);
@@ -54,6 +64,7 @@ export default function Login() {
   const googleSSO = async () => {
     const { google } = await api.get("/auth/sso/status").catch(() => ({ google: false }));
     if (!google) { toast("Google SSO needs GOOGLE_CLIENT_ID — see README"); return; }
+    try { sessionStorage.setItem("nst_next", next); } catch { /* storage blocked */ }
     window.location.href = "/api/auth/google";
   };
 

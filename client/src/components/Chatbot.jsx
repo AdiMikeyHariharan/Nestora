@@ -57,8 +57,7 @@ export default function Chatbot({ property, open, setOpen }) {
     try {
       await api.post("/chatbot/end", {
         propertyId: property.id,
-        sessionId,
-        buyerEmail: user.email
+        sessionId
       });
       setEnded(true);
       toast("Your interest has been submitted to the seller/agent!");
@@ -116,7 +115,7 @@ export default function Chatbot({ property, open, setOpen }) {
               type="text" 
               value={input}
               onChange={e => setInput(e.target.value)}
-              placeholder="Ask about this property..."
+              placeholder="Ask about this property..." maxLength={500}
               className="flex-1 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-emerald-500"
               disabled={loading}
             />
@@ -128,6 +127,7 @@ export default function Chatbot({ property, open, setOpen }) {
               Send
             </button>
           </form>
+          <p className="mt-1.5 text-center text-[10px] text-slate-400">AI answers can be wrong — confirm details with the owner. Nestora never asks for payment in chat.</p>
           {messages.length > 2 && (
             <button 
               onClick={submitInterest}

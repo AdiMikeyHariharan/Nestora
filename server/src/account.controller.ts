@@ -1,4 +1,9 @@
-import { Body, Controller, Get, Post, Query, Req, HttpException } from "@nestjs/common";
+import { Body, Controller, Get, Post, Query, Req, Res, HttpException } from "@nestjs/common";
+import * as ExcelJS from "exceljs";
+import {
+  cleanHistory, cleanUserText, looksLikeInjection, detectInjection, recordInjection, isChatPaused, clientIp, PAUSED_MSG,
+  MAX_HISTORY, OFF_TOPIC_REPLY, PROMPT_RULES, guardReply, signReply, takeLlmCall, llmSignal
+} from "./llm-guard";
 import * as crypto from "node:crypto";
 import { DbService } from "./db.service";
 import { CalendarService } from "./calendar.service";
@@ -128,24 +133,48 @@ export class AccountController {
   // Anthropic if configured; returns 501 only when neither key is set, and the
   // client then uses its built-in rule-based search. ----
   @Post("chat/ask")
-  async chatAsk(@Body() body: any) {
+  async chatAsk(@Body() body: any, @Req() req: any) {
     const groqKey = process.env.GROQ_API_KEY;
     const anthKey = process.env.ANTHROPIC_API_KEY;
     if (!groqKey && !anthKey) throw err(501, "AI chat not configured — set GROQ_API_KEY");
 
+    const user = await this.db.userFromRequest(req);
+    const actor = user ? "user:" + user.email : "ip:" + clientIp(req);
+    if (await isChatPaused(this.db, actor)) throw err(429, PAUSED_MSG);
+
+    const raw = Array.isArray(body.messages) ? body.messages : [];
+    const lastText = raw[raw.length - 1]?.role === "user" ? cleanUserText(raw[raw.length - 1].content) : "";
+    if (!lastText) throw err(400, "messages must end with a user message");
+    // Screen every user turn (cached, so earlier turns cost nothing). A hit stops here:
+    // no model call, a recorded strike, and `flagged` tells the widget to reset history.
+    for (const m of raw.slice(-MAX_HISTORY)) {
+      const hit = m?.role === "user" ? await detectInjection(cleanUserText(m.content)) : null;
+      if (hit) {
+        await recordInjection(this.db, actor, "chat/ask:" + hit, cleanUserText(m.content));
+        return { reply: OFF_TOPIC_REPLY, sig: signReply(OFF_TOPIC_REPLY), propertyIds: [], flagged: true };
+      }
+    }
+    // Only user turns and server-signed assistant turns get through (see llm-guard).
+    const recent = cleanHistory(raw);
+    if (recent[recent.length - 1]?.role !== "user") throw err(400, "messages must end with a user message");
+    // Out of daily LLM budget → 503, and the widget falls back to its rule-based search.
+    if (!takeLlmCall()) throw err(503, "AI assistant is busy — try again later");
+
+    // Seller-written titles that read like instructions never reach the prompt (indirect injection).
     const { rows } = await this.db.q(
-      "SELECT id,title,type,category,city,area,pincode,price_inr,beds,baths,sqft,furnishing FROM properties ORDER BY created_at DESC LIMIT 60");
+      "SELECT id,title,type,category,city,area,pincode,price_inr,beds,baths,sqft,furnishing FROM properties ORDER BY created_at DESC LIMIT 60")
+      .then(r => ({ rows: r.rows.filter((p: any) => !looksLikeInjection(p.title)) }));
     const system = `You are Nestora's professional real-estate assistant (India). Be concise, warm and factual — no emoji.
 Answer only from this live inventory (price_inr is INR; type buy=sale, rent=monthly):
-${JSON.stringify(rows)}
-When recommending homes, end with a line: PROPS:<comma-separated ids> so the UI can render cards. To book a visit, tell them to open the property page and select "Schedule a visit".`;
-    const recent = (body.messages || []).slice(-12);
+<listing_data>${JSON.stringify(rows)}</listing_data>
+When recommending homes, end with a line: PROPS:<comma-separated ids> so the UI can render cards. To book a visit, tell them to open the property page and select "Schedule a visit".
+${PROMPT_RULES}`;
 
     let text = "";
     try {
       if (groqKey) {
         const resp = await fetch("https://api.groq.com/openai/v1/chat/completions", {
-          method: "POST",
+          method: "POST", signal: llmSignal(),
           headers: { Authorization: `Bearer ${groqKey}`, "Content-Type": "application/json" },
           body: JSON.stringify({
             model: GROQ_MODEL, max_tokens: 600, temperature: 0.3,
@@ -157,7 +186,7 @@ When recommending homes, end with a line: PROPS:<comma-separated ids> so the UI 
         text = d.choices?.[0]?.message?.content || "";
       } else {
         const resp = await fetch("https://api.anthropic.com/v1/messages", {
-          method: "POST",
+          method: "POST", signal: llmSignal(),
           headers: { "x-api-key": anthKey, "anthropic-version": "2023-06-01", "content-type": "application/json" },
           body: JSON.stringify({ model: "claude-haiku-4-5-20251001", max_tokens: 500, system, messages: recent })
         });
@@ -169,8 +198,10 @@ When recommending homes, end with a line: PROPS:<comma-separated ids> so the UI 
       throw err(502, "AI service unavailable");
     }
 
-    const ids = (text.match(/PROPS:([\w,-]+)/)?.[1] || "").split(",").filter(Boolean);
-    return { reply: text.replace(/PROPS:\s*[\w,\- ]*/gi, "").trim(), propertyIds: ids };
+    // Only ids that are really in the inventory, and a filtered reply (links, emails, prompt leaks).
+    const ids = (text.match(/PROPS:([\w,-]+)/)?.[1] || "").split(",").filter(id => rows.some(r => r.id === id)).slice(0, 6);
+    const reply = guardReply(text.replace(/PROPS:\s*[\w,\- ]*/gi, "")) || OFF_TOPIC_REPLY;
+    return { reply, sig: signReply(reply), propertyIds: ids };
   }
 
   // ---- Chatbot conversation log ----
@@ -183,7 +214,11 @@ When recommending homes, end with a line: PROPS:<comma-separated ids> so the UI 
   }
 
   @Get("chat/history")
-  async chatHistory(@Query("session") session: string) {
+  async chatHistory(@Query("session") session: string, @Req() req: any) {
+    // Widget sessions aren't tied to an account, so only admins may read them.
+    const user = await this.db.userFromRequest(req);
+    if (!user) throw err(401, "Login required");
+    if (user.role !== "admin") throw err(403, "Admins only");
     if (!session) throw err(400, "session required");
     const { rows } = await this.db.q(
       "SELECT who, text, created_at FROM chat_messages WHERE session = $1 ORDER BY id ASC LIMIT 200", [session]);
@@ -219,5 +254,62 @@ When recommending homes, end with a line: PROPS:<comma-separated ids> so the UI 
     
     await this.db.q("UPDATE leads SET status = $1 WHERE id = $2", [status, leadId]);
     return { ok: true, status };
+  }
+
+  // ---- Admin: everyone who viewed a listing or submitted interest, as .xlsx ----
+  @Get("admin/interest.xlsx")
+  async interestSheet(@Req() req: any, @Res() res: any) {
+    const user = await this.requireUser(req);
+    if (user.role !== "admin") throw err(403, "Admins only");
+    const { rows } = await this.db.q(`
+      SELECT e.created_at, e.action, e.email, u.name, u.phone, e.property_id, p.title, p.area, p.city, p.type,
+        p.price_inr, e.status, e.confidence, e.summary
+      FROM (
+        SELECT created_at, 'Viewed' AS action, email, property_id, NULL AS status, NULL::int AS confidence, NULL AS summary
+        FROM property_views
+        UNION ALL
+        SELECT created_at, 'Submitted interest', buyer_email, property_id, status, confidence_rating, chat_summary
+        FROM leads
+      ) e
+      LEFT JOIN users u ON u.email = e.email
+      LEFT JOIN properties p ON p.id = e.property_id
+      ORDER BY e.created_at DESC`);
+
+    const wb = new ExcelJS.Workbook();
+    const ws = wb.addWorksheet("Interested people", { views: [{ state: "frozen", ySplit: 1 }] });
+    ws.columns = [
+      { header: "Date", key: "date", width: 18, style: { numFmt: "dd-mmm-yyyy hh:mm" } },
+      { header: "Action", key: "action", width: 18 },
+      { header: "Name", key: "name", width: 22 },
+      { header: "Email", key: "email", width: 30 },
+      { header: "Phone", key: "phone", width: 16 },
+      { header: "Property", key: "title", width: 34 },
+      { header: "Property ID", key: "property_id", width: 16 },
+      { header: "Locality", key: "area", width: 20 },
+      { header: "City", key: "city", width: 14 },
+      { header: "Sale / Rent", key: "type", width: 11 },
+      { header: "Price (₹)", key: "price", width: 14, style: { numFmt: "#,##0" } },
+      { header: "Lead status", key: "status", width: 12 },
+      { header: "Confidence (1-10)", key: "confidence", width: 16 },
+      { header: "Chat summary", key: "summary", width: 60 }
+    ];
+    // Excel dates carry no timezone and exceljs writes UTC, so shift to IST for display.
+    const IST_MS = 330 * 60 * 1000;
+    // Names, titles and AI chat summaries are user/LLM text. Cells are typed strings,
+    // but a leading = + - @ is still quoted so no spreadsheet app can read a formula.
+    const cell = (v: any) => typeof v === "string" && /^[=+\-@\t\r]/.test(v) ? "'" + v : v;
+    for (const r of rows) ws.addRow({
+      ...r, date: new Date(new Date(r.created_at).getTime() + IST_MS), name: cell(r.name || ""), phone: cell(r.phone || ""),
+      email: cell(r.email), title: cell(r.title || "(deleted listing)"), area: cell(r.area), city: cell(r.city),
+      summary: cell(r.summary), type: r.type === "rent" ? "Rent" : r.type ? "Sale" : "",
+      price: r.price_inr ?? null
+    });
+    ws.getRow(1).font = { bold: true };
+    ws.autoFilter = { from: "A1", to: "N1" };
+
+    res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+    res.setHeader("Content-Disposition", `attachment; filename="nestora-interest-${new Date().toISOString().slice(0, 10)}.xlsx"`);
+    await wb.xlsx.write(res);
+    res.end();
   }
 }

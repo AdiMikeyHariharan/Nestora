@@ -29,7 +29,16 @@ export const api = {
   get(p) { return this.call(p); },
   post(p, body) { return this.call(p, { method: "POST", body }); },
   patch(p, body) { return this.call(p, { method: "PATCH", body }); },
-  del(p) { return this.call(p, { method: "DELETE" }); }
+  del(p) { return this.call(p, { method: "DELETE" }); },
+  // Authenticated file download (a plain <a href> can't send the bearer token).
+  async download(path, filename) {
+    const res = await fetch(API_BASE + "/api" + path, { headers: { Authorization: "Bearer " + this.token() } });
+    if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || "Download failed (" + res.status + ")");
+    const url = URL.createObjectURL(await res.blob());
+    const a = Object.assign(document.createElement("a"), { href: url, download: filename });
+    a.click();
+    URL.revokeObjectURL(url);
+  }
 };
 
 export function fmtPrice(inr, isRent, currency) {

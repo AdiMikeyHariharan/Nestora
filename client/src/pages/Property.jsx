@@ -20,6 +20,7 @@ export default function Property() {
   const { user, shortlist, toggleShortlist, toast, currency, setActiveProperty } = useApp();
   const navigate = useNavigate();
   const [p, setP] = useState(null);
+  const [locked, setLocked] = useState(false); // server sent a teaser: sign-up required
   const [loading, setLoading] = useState(true);
   const [mainImg, setMainImg] = useState("");
   const [visitOpen, setVisitOpen] = useState(false);
@@ -39,7 +40,7 @@ export default function Property() {
       localStorage.setItem("nst_recent", JSON.stringify([id, ...seen].slice(0, 6)));
     } catch { /* ignore */ }
     api.get("/properties/" + id)
-      .then(d => { setP(d.property); setMainImg(d.property.img); setActiveProperty(d.property); return d.property; })
+      .then(d => { setP(d.property); setLocked(!!d.locked); setMainImg(d.property.img); setActiveProperty(d.property); return d.property; })
       .then(prop => api.get("/properties").then(({ properties }) => {
         // intelligent picks: same city first, then same configuration, never itself
         const ranked = properties
@@ -52,7 +53,7 @@ export default function Property() {
       .catch(() => setP(null))
       .finally(() => setLoading(false));
     return () => setActiveProperty(null); // clear when leaving the property page
-  }, [id]);
+  }, [id, user?.email]);
 
   // Per-listing title/description + structured data (must run before early returns).
   const priceStr = p ? fmtPrice(p.priceINR, p.type === "rent", "INR") : "";
@@ -71,6 +72,44 @@ export default function Property() {
       </div>
     </div>
   );
+
+  if (locked) {
+    const next = encodeURIComponent(`/property/${p.id}`);
+    return (
+      <div className="mx-auto mt-8 w-[min(1000px,94%)] pb-10">
+        <Link to="/listings" className="text-sm font-bold text-emerald-700 hover:underline">← Back to search</Link>
+        <div className="mt-4 grid items-start gap-7 md:grid-cols-[1.4fr_1fr]">
+          <div className="overflow-hidden rounded-3xl shadow-xl shadow-slate-900/10 ring-1 ring-slate-200">
+            <div className="aspect-video bg-slate-200">
+              <img src={p.img} alt={p.title} className="h-full w-full object-cover" onError={e => { e.currentTarget.style.display = "none"; }} />
+            </div>
+            <div className="bg-white p-5">
+              <h1 className="text-xl font-extrabold tracking-tight">{p.title}</h1>
+              <p className="mt-1 flex items-center gap-1.5 text-sm text-slate-500"><PinIcon size={14} /> {p.area}, {p.city} — {p.pincode}</p>
+              <p className="mt-3 text-2xl font-extrabold text-emerald-700">{fmtPrice(p.priceINR, p.type === "rent", currency)}</p>
+              <p className="mt-1 text-sm text-slate-500">{p.propertyType || "Property"} · {p.sqft} sqft{p.beds ? ` · ${p.beds} BHK` : ""}</p>
+            </div>
+          </div>
+          <div className="rounded-3xl bg-white p-6 shadow-xl shadow-slate-900/5 ring-1 ring-slate-200">
+            <h2 className="text-lg font-extrabold tracking-tight">{user ? "Verify your email to see full details" : "Sign up to see full details"}</h2>
+            <p className="mt-2 text-sm text-slate-500">
+              {user
+                ? "Your account isn't verified yet. Log in with an email code (or Google) to unlock the full listing."
+                : "The full description, photo gallery, walkthrough video, map, EMI estimate and site-visit booking are available to members. It's free — sign up with Google or your email."}
+            </p>
+            {!user && <Link to={`/login?mode=signup&next=${next}`}
+              className="mt-5 block rounded-xl bg-gradient-to-r from-emerald-600 to-teal-500 py-3 text-center font-bold text-white shadow-lg shadow-emerald-600/25 hover:brightness-110">
+              Create free account
+            </Link>}
+            <Link to={`/login?next=${next}`}
+              className="mt-2.5 block rounded-xl border border-slate-200 py-3 text-center text-sm font-bold text-slate-700 hover:border-emerald-400 hover:text-emerald-700">
+              {user ? "Verify and continue" : "I already have an account — log in"}
+            </Link>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   const isRent = p.type === "rent";
   const saved = shortlist.includes(p.id);

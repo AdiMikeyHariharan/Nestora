@@ -1,7 +1,7 @@
 import { Routes, Route, Link, NavLink, useLocation } from "react-router-dom";
 import { useEffect, useState } from "react";
 import { useApp } from "./store.jsx";
-import { NESTORA, waLink, fmtPrice } from "./api.js";
+import { api, NESTORA, waLink, fmtPrice } from "./api.js";
 import ChatWidget from "./components/ChatWidget.jsx";
 import { WaIcon, MailIcon, PhoneIcon } from "./components/icons.jsx";
 import Home from "./pages/Home.jsx";
@@ -130,10 +130,23 @@ function Footer() {
   );
 }
 
+// Anonymous, random per-browser id so the admin metrics can count unique visitors.
+let memVisitor = "";
+function visitorId() {
+  try {
+    let id = localStorage.getItem("nst_visitor");
+    if (!id) { id = crypto.randomUUID(); localStorage.setItem("nst_visitor", id); }
+    return id;
+  } catch {
+    return memVisitor ||= crypto.randomUUID();
+  }
+}
+
 export default function App() {
   const { pathname } = useLocation();
   const { activeProperty: ap } = useApp();
   useEffect(() => { window.scrollTo(0, 0); }, [pathname]);
+  useEffect(() => { api.post("/track", { visitor: visitorId(), path: pathname }).catch(() => {}); }, [pathname]);
   // When the user is viewing a property, the WhatsApp message names that property.
   const waMessage = ap
     ? `Hi Nestora! I'm interested in "${ap.title}" — ${ap.area}, ${ap.city} (${fmtPrice(ap.priceINR, ap.type === "rent")}).\n${window.location.origin}/property/${ap.id}\nPlease share details / book a visit.`

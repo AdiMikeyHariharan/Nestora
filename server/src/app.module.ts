@@ -7,9 +7,10 @@ import { ChatbotController } from "./chatbot.controller";
 import { CalendarController } from "./calendar.controller";
 import { PropertiesController } from "./properties.controller";
 import { AccountController } from "./account.controller";
+import { MetricsController } from "./metrics.controller";
 
 @Module({
-  controllers: [PropertiesController, AccountController, AuthController, MeController, ChatbotController, CalendarController],
+  controllers: [PropertiesController, AccountController, AuthController, MeController, ChatbotController, CalendarController, MetricsController],
   providers: [DbService, GeoService, CalendarService]
 })
 export class AppModule {}

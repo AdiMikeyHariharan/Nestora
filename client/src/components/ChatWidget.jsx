@@ -9,7 +9,7 @@ import { ChatIcon } from "./icons.jsx";
 // Conversations are persisted server-side (chat_messages table) per browser session.
 function sessionId() {
   let id = localStorage.getItem("nst_chat_session");
-  if (!id) { id = "chat-" + Math.random().toString(36).slice(2, 12); localStorage.setItem("nst_chat_session", id); }
+  if (!id) { id = "chat-" + crypto.randomUUID(); localStorage.setItem("nst_chat_session", id); }
   return id;
 }
 const logMsg = (who, text) => api.post("/chat/log", { session: sessionId(), who, text }).catch(() => {});
@@ -42,8 +42,10 @@ export default function ChatWidget() {
     history.current.push({ role: "user", content: userText });
     try {
       setTyping(true);
-      const { reply, propertyIds } = await api.post("/chat/ask", { messages: history.current });
-      history.current.push({ role: "assistant", content: reply });
+      const { reply, sig, propertyIds, flagged } = await api.post("/chat/ask", { messages: history.current });
+      // The server only accepts assistant turns it signed; a flagged message restarts the conversation.
+      if (flagged) history.current = [];
+      else history.current.push({ role: "assistant", content: reply, sig });
       setTyping(false);
       push({ who: "bot", text: reply });
       if (propertyIds?.length) {
@@ -260,11 +262,12 @@ export default function ChatWidget() {
             </div>
             <form className="flex gap-2 border-t border-slate-100 p-3" onSubmit={submit}>
               <input
-                ref={inputRef} placeholder="Try: 2 BHK near Anandas…" autoComplete="off"
+                ref={inputRef} placeholder="Try: 2 BHK near Anandas…" autoComplete="off" maxLength={500}
                 className="flex-1 rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-emerald-500"
               />
               <button type="submit" className="rounded-xl bg-gradient-to-r from-emerald-600 to-teal-500 px-3.5 font-bold text-white hover:brightness-110">➤</button>
             </form>
+            <p className="px-3 pb-2 text-center text-[10px] text-slate-400">AI answers can be wrong — confirm details with the owner. Nestora never asks for payment in chat.</p>
           </motion.div>
         )}
       </AnimatePresence>

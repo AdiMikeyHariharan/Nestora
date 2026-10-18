@@ -2,12 +2,28 @@ import { Controller, Delete, Get, Param, Patch, Post, Query, Body, Req, Res, Htt
 import { DbService } from "./db.service";
 import { GeoService } from "./geo.service";
 import { checkSegmentType } from "./property-types";
+import { cleanUserText, detectInjection, recordInjection } from "./llm-guard";
 
 const err = (code: number, msg: string) => new HttpException({ error: msg }, code);
+// Media is stored as base64 data URLs (or https links). SVG is refused: it can carry script.
+const isImage = (x: any) => typeof x === "string" && /^(data:image\/(?!svg)[\w.+-]+;base64,|https:\/\/)/i.test(x);
+const isVideo = (x: any) => typeof x === "string" && /^(data:video\/[\w.+-]+;base64,|https:\/\/)/i.test(x);
+// Full listing details (description, gallery, video) are for signed-up users only;
+// everyone else — and every list response — gets the card-level teaser.
+const teaser = (p: any) => { const { desc, photos, video, ...rest } = p; return rest; };
 
 @Controller()
 export class PropertiesController {
   constructor(private db: DbService, private geo: GeoService) {}
+
+  // Listing text is fed to the chatbots, so text that reads like instructions to an AI
+  // is refused when it's written (the chatbots also withhold it at read time).
+  private async rejectInjectedText(email: string, text: string) {
+    const hit = await detectInjection(cleanUserText(text, 5000));
+    if (!hit) return;
+    await recordInjection(this.db, "user:" + email, "listing:" + hit, text);
+    throw err(400, "The title or description contains text that looks like instructions to our AI assistant. Please describe the property only.");
+  }
 
   // Sitemap built from live data, so every listing (and each locality we actually
   // have stock in) is discoverable by search engines. Vercel rewrites /sitemap.xml here.
@@ -56,7 +72,7 @@ export class PropertiesController {
   }
 
   @Get("properties")
-  async list(@Query() p: Record<string, string>) {
+  async list(@Query() p: Record<string, string>, @Req() req: any) {
     const where: string[] = [], params: any[] = [];
     const add = (sql: string, val: any) => { params.push(val); where.push(sql.replace("?", "$" + params.length)); };
     if (p.q) add("(city || ' ' || area) ILIKE ?", "%" + p.q + "%");
@@ -71,7 +87,9 @@ export class PropertiesController {
     if (p.propertyType) add("property_type = ?", p.propertyType);
     const { rows } = await this.db.q(
       `SELECT * FROM properties ${where.length ? "WHERE " + where.join(" AND ") : ""} ORDER BY created_at DESC`, params);
-    let list = rows.map(r => this.db.toApiProp(r));
+    // Admins get full rows: their listing editors work from this list.
+    const isAdmin = (await this.db.userFromRequest(req))?.role === "admin";
+    let list = rows.map(r => isAdmin ? this.db.toApiProp(r) : teaser(this.db.toApiProp(r)));
 
     // near=<lat>,<lng>&radius=<km> → haversine filter + distance sort
     const near = (p.near || "").split(",").map(Number);
@@ -94,14 +112,23 @@ export class PropertiesController {
     if (isNaN(lat) || isNaN(lng)) throw err(400, "Invalid lat or lng");
 
     const { rows } = await this.db.q("SELECT * FROM properties ORDER BY created_at DESC");
-    const properties = rows.map(r => this.db.toApiProp(r));
+    const properties = rows.map(r => teaser(this.db.toApiProp(r)));
     return this.geo.clusterAndRecommend(properties, lat, lng);
   }
 
   @Get("properties/:id")
-  async one(@Param("id") id: string) {
+  async one(@Param("id") id: string, @Req() req: any) {
     const { rows: [row] } = await this.db.q("SELECT * FROM properties WHERE id = $1", [id]);
     if (!row) throw err(404, "Not found");
+    // Record who opened the listing for the admin interest sheet. Skip admins and
+    // the seller's own views, and count repeat opens within 30 minutes once.
+    const user = await this.db.userFromRequest(req);
+    // Not signed up (or email not verified yet): teaser only, and the page shows a sign-up wall.
+    if (!user?.verified) return { property: teaser(this.db.toApiProp(row)), locked: true };
+    if (user.role !== "admin" && user.email !== row.posted_by)
+      await this.db.q(`INSERT INTO property_views (email, property_id) SELECT $1, $2 WHERE NOT EXISTS (
+        SELECT 1 FROM property_views WHERE email = $1 AND property_id = $2 AND created_at > now() - interval '30 minutes')`,
+        [user.email, id]);
     return { property: this.db.toApiProp(row) };
   }
 
@@ -115,6 +142,11 @@ export class PropertiesController {
     const segment = body.segment || "residential";
     const segErr = checkSegmentType(segment, body.propertyType);
     if (segErr) throw err(400, segErr);
+    await this.rejectInjectedText(user.email, `${body.title}\n${body.desc}`);
+    const photos = Array.isArray(body.photos) ? body.photos : [];
+    if (photos.length > 12 || !photos.every(isImage) || (body.img && !isImage(body.img)))
+      throw err(400, "Photos must be images (max 12)");
+    if (body.video && !isVideo(body.video)) throw err(400, "Unsupported video format");
     const id = this.db.uid("prop");
     // best-effort geocode of the locality so the listing appears in geo search
     let lat = body.lat ?? null, lng = body.lng ?? null;
@@ -134,7 +166,7 @@ export class PropertiesController {
       [id, body.title, body.type, body.category, body.city, body.area, body.pincode,
         parseInt(body.priceINR, 10), parseFloat(body.beds), parseInt(body.baths, 10), parseInt(body.sqft, 10),
         body.desc, body.img || body.photos?.[0] || `https://picsum.photos/seed/${id}/800/500`,
-        JSON.stringify(body.photos || []), body.video || null, user.email, listingRole, lat, lng, segment, body.propertyType]);
+        JSON.stringify(photos), body.video || null, user.email, listingRole, lat, lng, segment, body.propertyType]);
     return { id };
   }
 
@@ -151,6 +183,7 @@ export class PropertiesController {
     const num = (k: string) => Number(body[k]);
     const title = text("title"), city = text("city"), area = text("area"), pincode = text("pincode"), desc = text("desc");
     if (!title || !city || !area || !desc) throw err(400, "Title, city, area and description are required");
+    await this.rejectInjectedText(user.email, `${title}\n${desc}`);
     if (!/^\d{6}$/.test(pincode)) throw err(400, "Pincode must be 6 digits");
     if (!["buy", "rent"].includes(body.type)) throw err(400, "Type must be buy or rent");
     if (!["resale", "new"].includes(body.category)) throw err(400, "Category must be resale or new");
@@ -189,7 +222,9 @@ export class PropertiesController {
     if (!row) throw err(404, "Not found");
     const photos: string[] = Array.isArray(body.photos) ? body.photos.filter((x: any) => typeof x === "string" && x) : [];
     if (photos.length > 12) throw err(400, "Max 12 photos");
+    if (!photos.every(isImage)) throw err(400, "Photos must be images");
     const video = typeof body.video === "string" && body.video ? body.video : null;
+    if (video && !isVideo(video)) throw err(400, "Unsupported video format");
     await this.db.q("UPDATE properties SET photos = $1, img = $2, video = $3 WHERE id = $4",
       [JSON.stringify(photos), photos[0] || row.img, video, id]);
     return { ok: true };

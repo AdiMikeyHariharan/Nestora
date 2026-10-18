@@ -1,17 +1,24 @@
 // Data layer. DATABASE_URL points at local Postgres by default — swap it for
 // your Supabase project's connection string (Settings → Database) to go hosted.
 import 'dotenv/config';
-import { Injectable, OnModuleInit } from "@nestjs/common";
+import { Injectable, OnModuleInit, HttpException } from "@nestjs/common";
 import { Pool } from "pg";
 import * as crypto from "node:crypto";
 import { Resend } from "resend";
+
+const SESSION_DAYS = 30;
+// Prefix of the short-lived token handed out mid Google sign-up; never a login session.
+export const GOOGLE_TEMP_PREFIX = "google-temp-";
+const escHtml = (s: string) => s.replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c] as string));
 
 @Injectable()
 export class DbService implements OnModuleInit {
   pool = new Pool({
     connectionString: process.env.DATABASE_URL || "postgresql://localhost:5433/nestora",
-    // Supabase requires SSL; local Postgres doesn't.
-    ssl: process.env.DATABASE_URL?.includes("supabase") ? { rejectUnauthorized: false } : undefined
+    // Supabase requires SSL; local Postgres doesn't. Set DATABASE_CA_CERT (the PEM from
+    // Supabase → Database settings → SSL) to verify the server certificate too.
+    ssl: process.env.DATABASE_CA_CERT ? { ca: process.env.DATABASE_CA_CERT }
+      : process.env.DATABASE_URL?.includes("supabase") ? { rejectUnauthorized: false } : undefined
   });
 
   q(text: string, params?: any[]) { return this.pool.query(text, params); }
@@ -53,6 +60,23 @@ export class DbService implements OnModuleInit {
         id BIGSERIAL PRIMARY KEY, session TEXT, who TEXT, text TEXT, created_at TIMESTAMPTZ DEFAULT now()
       );
       CREATE INDEX IF NOT EXISTS idx_chat_session ON chat_messages (session, id);
+      -- Property chatbot sessions the server issued, so a session id can only be
+      -- continued (and turned into a lead) by the person who started it.
+      CREATE TABLE IF NOT EXISTS chatbot_sessions (
+        id TEXT PRIMARY KEY, owner_email TEXT, property_id TEXT, created_at TIMESTAMPTZ DEFAULT now()
+      );
+      -- Logged-in users opening a listing; exported with leads as the admin interest sheet.
+      CREATE TABLE IF NOT EXISTS property_views (
+        id BIGSERIAL PRIMARY KEY, email TEXT, property_id TEXT, created_at TIMESTAMPTZ DEFAULT now()
+      );
+      CREATE INDEX IF NOT EXISTS idx_views_user_prop ON property_views (email, property_id, created_at);
+      -- Every page view (anonymous included) for the admin metrics dashboard.
+      CREATE TABLE IF NOT EXISTS page_views (
+        id BIGSERIAL PRIMARY KEY, visitor_id TEXT, email TEXT, path TEXT, property_id TEXT,
+        created_at TIMESTAMPTZ DEFAULT now()
+      );
+      CREATE INDEX IF NOT EXISTS idx_pv_created ON page_views (created_at);
+      CREATE INDEX IF NOT EXISTS idx_pv_property ON page_views (property_id, created_at);
       
       ALTER TABLE users ADD COLUMN IF NOT EXISTS phone TEXT;
       -- Google SSO used to create users as 'buyer', which isn't a valid role and hid
@@ -73,6 +97,28 @@ export class DbService implements OnModuleInit {
         status TEXT DEFAULT 'pending',
         created_at TIMESTAMPTZ DEFAULT now()
       );
+
+      -- Blocked prompt-injection attempts (actor = 'user:<email>' or 'ip:<addr>');
+      -- 3 in an hour pause that actor's AI chat. Admin-reviewable.
+      CREATE TABLE IF NOT EXISTS llm_security_events (
+        id BIGSERIAL PRIMARY KEY, actor TEXT, endpoint TEXT, sample TEXT, created_at TIMESTAMPTZ DEFAULT now()
+      );
+      CREATE INDEX IF NOT EXISTS idx_llm_events_actor ON llm_security_events (actor, created_at);
+
+      -- Brute-force protection for OTP codes and passwords.
+      ALTER TABLE users ADD COLUMN IF NOT EXISTS otp_attempts INT DEFAULT 0;
+      ALTER TABLE users ADD COLUMN IF NOT EXISTS failed_logins INT DEFAULT 0;
+      ALTER TABLE users ADD COLUMN IF NOT EXISTS locked_until TIMESTAMPTZ;
+      DELETE FROM sessions WHERE created_at < now() - interval '${SESSION_DAYS} days';
+
+      -- On Supabase every table in the public schema is also exposed through its REST
+      -- API. Enabling RLS with no policies shuts that door; the app connects as the
+      -- table owner, which bypasses RLS, so the server itself is unaffected.
+      DO $$ DECLARE t text; BEGIN
+        FOR t IN SELECT tablename FROM pg_tables WHERE schemaname = current_schema() AND tableowner = current_user LOOP
+          EXECUTE format('ALTER TABLE %I ENABLE ROW LEVEL SECURITY', t);
+        END LOOP;
+      END $$;
     `);
     await this.seed();
     await this.backfillPropertyTypes();
@@ -205,17 +251,26 @@ export class DbService implements OnModuleInit {
     return crypto.timingSafeEqual(Buffer.from(hash, "hex"), crypto.scryptSync(pw, salt, 32));
   }
 
+  // Sessions are stored as SHA-256 hashes so a database leak doesn't hand out live
+  // logins. Rows created before hashing hold the raw 48-char token; they still match
+  // until they age out after SESSION_DAYS. The raw match is limited to non-hash-length
+  // rows, otherwise a leaked hash could itself be presented as a token.
+  hashToken(token: string) { return crypto.createHash("sha256").update(token).digest("hex"); }
+  bearer(req: any) { return (req.headers.authorization || "").replace(/^Bearer\s+/i, ""); }
+
   async userFromRequest(req: any) {
-    const token = (req.headers.authorization || "").replace(/^Bearer\s+/i, "");
-    if (!token) return null;
+    const token = this.bearer(req);
+    if (!token || token.startsWith(GOOGLE_TEMP_PREFIX)) return null;
     const { rows } = await this.q(
-      "SELECT u.* FROM sessions s JOIN users u ON u.email = s.email WHERE s.token = $1", [token]);
+      `SELECT u.* FROM sessions s JOIN users u ON u.email = s.email
+       WHERE (s.token = $1 OR (length(s.token) <> 64 AND s.token = $2)) AND s.created_at > now() - interval '${SESSION_DAYS} days'`,
+      [this.hashToken(token), token]);
     return rows[0] || null;
   }
 
-  async createSession(email: string) {
-    const token = crypto.randomBytes(24).toString("hex");
-    await this.q("INSERT INTO sessions (token,email) VALUES ($1,$2)", [token, email]);
+  async createSession(email: string, prefix = "") {
+    const token = prefix + crypto.randomBytes(24).toString("hex");
+    await this.q("INSERT INTO sessions (token,email) VALUES ($1,$2)", [this.hashToken(token), email]);
     return token;
   }
 
@@ -224,8 +279,12 @@ export class DbService implements OnModuleInit {
   resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null;
 
   async sendEmail(to: string, subject: string, text: string) {
-    console.log(`\n=== EMAIL to ${to} ===\n${subject}\n${text}\n====================\n`);
-    if (!this.resend) return;
+    // Bodies carry OTP codes, so they're only printed in demo mode (no Resend key);
+    // with real email they must never reach the server logs.
+    if (!this.resend) {
+      console.log(`\n=== EMAIL (demo mode) to ${to} ===\n${subject}\n${text}\n====================\n`);
+      return;
+    }
 
     try {
       await this.resend.emails.send({
@@ -238,7 +297,7 @@ export class DbService implements OnModuleInit {
             <h1 style="color: #ffffff; margin: 0; font-size: 24px; font-weight: 800;">Nestora</h1>
           </div>
           <div style="padding: 20px; color: #1e293b;">
-            <p style="margin-top: 0; font-size: 16px;">${text.replace(/\n/g, "<br>")}</p>
+            <p style="margin-top: 0; font-size: 16px;">${escHtml(text).replace(/\n/g, "<br>")}</p>
           </div>
           <div style="border-top: 1px solid #e2e8f0; padding-top: 15px; text-align: center; font-size: 12px; color: #64748b;">
             Nestora properties · Find your nest
@@ -251,8 +310,12 @@ export class DbService implements OnModuleInit {
   }
 
   async issueOtp(email: string) {
+    // One code per minute: an OTP lives 10 min, so one issued <60s ago expires >9 min out.
+    const { rows: [u] } = await this.q("SELECT otp_expires FROM users WHERE email = $1", [email]);
+    if (u?.otp_expires && Number(u.otp_expires) - 9 * 60 * 1000 > Date.now())
+      throw new HttpException({ error: "Please wait a minute before requesting another code" }, 429);
     const otp = "" + crypto.randomInt(100000, 1000000);
-    await this.q("UPDATE users SET otp = $1, otp_expires = $2 WHERE email = $3",
+    await this.q("UPDATE users SET otp = $1, otp_expires = $2, otp_attempts = 0 WHERE email = $3",
       [otp, Date.now() + 10 * 60 * 1000, email]);
     this.sendEmail(email, "Your Nestora verification code", `Your OTP is ${otp}. It expires in 10 minutes.`);
     return otp;

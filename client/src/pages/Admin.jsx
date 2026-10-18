@@ -4,6 +4,7 @@ import { api, fmtPrice } from "../api.js";
 import { useApp } from "../store.jsx";
 import { usePageMeta } from "../seo.js";
 import { PROPERTY_TYPES } from "../lib/propertyTypes.js";
+import AdminMetrics from "../components/AdminMetrics.jsx";
 
 const MAX_PHOTOS = 12;
 const MAX_VIDEO_MB = 20; // base64 adds ~33%, and the server accepts 30 MB bodies
@@ -240,7 +241,7 @@ function DetailsEditor({ property: p, onClose, onSaved }) {
 
 export default function Admin() {
   usePageMeta({ title: "Admin", noIndex: true });
-  const { user } = useApp();
+  const { user, toast } = useApp();
   const [list, setList] = useState([]);
   const [loading, setLoading] = useState(true);
   const [q, setQ] = useState("");
@@ -270,9 +271,18 @@ export default function Admin() {
           <h1 className="text-2xl font-extrabold tracking-tight">Admin · Listings</h1>
           <p className="text-sm text-slate-500">{list.length} properties · change photos and videos, or add a new listing.</p>
         </div>
+        <div className="flex flex-wrap gap-2">
+        <button
+          onClick={() => api.download("/admin/interest.xlsx", `nestora-interest-${new Date().toISOString().slice(0, 10)}.xlsx`).catch(e => toast(e.message))}
+          className="rounded-xl border border-slate-200 bg-white px-5 py-2.5 text-sm font-bold text-slate-700 hover:border-emerald-400 hover:text-emerald-700"
+        >Download interest list (Excel)</button>
         <Link to="/post" className="rounded-xl bg-gradient-to-r from-emerald-600 to-teal-500 px-5 py-2.5 text-sm font-bold text-white shadow-lg shadow-emerald-600/25 hover:brightness-110">+ Add new property</Link>
+        </div>
       </div>
 
+      <AdminMetrics />
+
+      <h2 className="mt-10 text-lg font-extrabold tracking-tight">Listings</h2>
       <input
         value={q} onChange={e => setQ(e.target.value)} placeholder="Search by title, locality, city or ID"
         className="mt-6 w-full rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm outline-none focus:ring-2 focus:ring-emerald-500"

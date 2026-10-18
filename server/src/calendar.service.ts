@@ -25,7 +25,8 @@ export class CalendarService implements OnModuleInit {
   async onModuleInit() {
     await this.db.q(`CREATE TABLE IF NOT EXISTS calendar_tokens (
       email TEXT PRIMARY KEY, refresh_token TEXT, connected_at TIMESTAMPTZ DEFAULT now()
-    )`);
+    );
+    ALTER TABLE calendar_tokens ENABLE ROW LEVEL SECURITY`);
   }
 
   // Off unless CALENDAR_ENABLED=true. The OAuth client is shared with Google SSO, so
