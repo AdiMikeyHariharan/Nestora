@@ -5,34 +5,29 @@ import { useApp } from "../store.jsx";
 import { usePageMeta } from "../seo.js";
 import { PROPERTY_TYPES } from "../lib/propertyTypes.js";
 import AdminMetrics from "../components/AdminMetrics.jsx";
+import VideoPlayer from "../components/VideoPlayer.jsx";
+import { youTubeId, youTubeWatchUrl } from "../lib/youtube.js";
+import { compressImage, readAsDataURL, MAX_VIDEO_MB } from "../lib/images.js";
 
 const MAX_PHOTOS = 12;
-const MAX_VIDEO_MB = 20; // base64 adds ~33%, and the server accepts 30 MB bodies
-
-// Photos are stored in the database, so shrink them in the browser first:
-// a 5 MB phone photo becomes ~250 KB at 1600px.
-const compressImage = file => new Promise((resolve, reject) => {
-  const img = new Image();
-  img.onload = () => {
-    const scale = Math.min(1, 1600 / Math.max(img.width, img.height));
-    const canvas = document.createElement("canvas");
-    canvas.width = Math.round(img.width * scale);
-    canvas.height = Math.round(img.height * scale);
-    canvas.getContext("2d").drawImage(img, 0, 0, canvas.width, canvas.height);
-    URL.revokeObjectURL(img.src);
-    resolve(canvas.toDataURL("image/jpeg", 0.8));
-  };
-  img.onerror = reject;
-  img.src = URL.createObjectURL(file);
-});
-
-const readAsDataURL = f => new Promise(res => { const r = new FileReader(); r.onload = () => res(r.result); r.readAsDataURL(f); });
 
 function MediaEditor({ property, onClose, onSaved }) {
   const { toast } = useApp();
   const [photos, setPhotos] = useState(property.photos?.length ? property.photos : (property.img ? [property.img] : []));
   const [video, setVideo] = useState(property.video || null);
+  const [ytLink, setYtLink] = useState(youTubeId(property.video) ? property.video : "");
   const [busy, setBusy] = useState(false);
+
+  // A valid YouTube link becomes the video straight away (and previews); clearing the
+  // field drops a YouTube video. Big walkthroughs go here instead of a file upload.
+  const onYtLink = e => {
+    const link = e.target.value;
+    setYtLink(link);
+    const id = youTubeId(link);
+    if (id) setVideo(youTubeWatchUrl(id));
+    else if (!link.trim() && youTubeId(video)) setVideo(null);
+  };
+  const ytInvalid = ytLink.trim() !== "" && !youTubeId(ytLink);
 
   const addPhotos = async e => {
     const files = [...e.target.files];
@@ -49,8 +44,9 @@ function MediaEditor({ property, onClose, onSaved }) {
     const f = e.target.files[0];
     e.target.value = "";
     if (!f) return;
-    if (f.size > MAX_VIDEO_MB * 1024 * 1024) { toast(`Video too large — max ${MAX_VIDEO_MB} MB`); return; }
+    if (f.size > MAX_VIDEO_MB * 1024 * 1024) { toast(`Video too large — max ${MAX_VIDEO_MB} MB. Paste a YouTube link instead.`); return; }
     setVideo(await readAsDataURL(f));
+    setYtLink("");
   };
 
   const makeCover = i => setPhotos(p => [p[i], ...p.filter((_, j) => j !== i)]);
@@ -97,15 +93,15 @@ function MediaEditor({ property, onClose, onSaved }) {
           )}
         </div>
 
-        <h4 className="mt-7 text-sm font-extrabold">Video <span className="font-medium text-slate-400">(from your phone or laptop · max {MAX_VIDEO_MB} MB)</span></h4>
+        <h4 className="mt-7 text-sm font-extrabold">Video <span className="font-medium text-slate-400">(upload up to {MAX_VIDEO_MB} MB, or paste a YouTube link for longer videos)</span></h4>
         {video ? (
           <div className="mt-3">
-            <video controls src={video} className="w-full rounded-xl" />
+            <VideoPlayer src={video} title={`${property.title} — video preview`} />
             <div className="mt-2 flex gap-2">
               <label className="cursor-pointer rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-bold text-slate-600 hover:border-emerald-400">
-                Replace video<input type="file" accept="video/*" hidden onChange={addVideo} />
+                {youTubeId(video) ? "Upload a file instead" : "Replace video"}<input type="file" accept="video/*" hidden onChange={addVideo} />
               </label>
-              <button onClick={() => setVideo(null)} className="rounded-lg border border-rose-200 px-3 py-1.5 text-xs font-bold text-rose-600 hover:bg-rose-50">Remove video</button>
+              <button onClick={() => { setVideo(null); setYtLink(""); }} className="rounded-lg border border-rose-200 px-3 py-1.5 text-xs font-bold text-rose-600 hover:bg-rose-50">Remove video</button>
             </div>
           </div>
         ) : (
@@ -114,6 +110,15 @@ function MediaEditor({ property, onClose, onSaved }) {
             <input type="file" accept="video/*" hidden onChange={addVideo} />
           </label>
         )}
+        <label className="mt-3 block text-xs font-bold text-slate-600">Or paste a YouTube link
+          <input
+            value={ytLink} onChange={onYtLink} inputMode="url" placeholder="https://www.youtube.com/watch?v=… or https://youtu.be/…"
+            className={`mt-1.5 w-full rounded-xl border bg-white px-3.5 py-2.5 text-sm font-normal outline-none focus:ring-2 ${ytInvalid ? "border-rose-300 focus:ring-rose-400" : "border-slate-200 focus:ring-emerald-500"}`}
+          />
+          {ytInvalid
+            ? <span className="mt-1 block font-medium text-rose-600">That doesn't look like a YouTube video link.</span>
+            : <span className="mt-1 block font-medium text-slate-400">Tip: upload to YouTube as "Unlisted" so it only shows on Nestora. The preview appears above.</span>}
+        </label>
 
         <button
           onClick={save} disabled={busy}
@@ -165,7 +170,7 @@ function DetailsEditor({ property: p, onClose, onSaved }) {
 
         <div className="mt-5 grid gap-4 sm:grid-cols-2">
           <label className={lbl + " sm:col-span-2"}>Title
-            <input className={fieldCls + " mt-1.5"} required maxLength={80} value={f.title} onChange={e => set("title", e.target.value)} />
+            <input className={fieldCls + " mt-1.5"} required maxLength={120} value={f.title} onChange={e => set("title", e.target.value)} />
           </label>
           <label className={lbl}>Residential or Commercial
             <select className={fieldCls + " mt-1.5"} value={f.segment}
@@ -185,7 +190,7 @@ function DetailsEditor({ property: p, onClose, onSaved }) {
             </select>
           </label>
           <label className={lbl}>{f.type === "rent" ? "Monthly rent (₹)" : "Price (₹)"}
-            <input className={fieldCls + " mt-1.5"} type="number" min="1" required value={f.priceINR} onChange={e => set("priceINR", e.target.value)} />
+            <input className={fieldCls + " mt-1.5"} type="number" min="1000" max="100000000000" required value={f.priceINR} onChange={e => set("priceINR", e.target.value)} />
             {+f.priceINR > 0 && <span className="mt-1 block font-medium text-emerald-700">{fmtPrice(+f.priceINR, f.type === "rent", "INR")}</span>}
           </label>
           <label className={lbl}>Resale or New
@@ -199,16 +204,16 @@ function DetailsEditor({ property: p, onClose, onSaved }) {
             </select>
           </label>
           <label className={lbl}>City
-            <input className={fieldCls + " mt-1.5"} required value={f.city} onChange={e => set("city", e.target.value)} />
+            <input className={fieldCls + " mt-1.5"} required maxLength={60} value={f.city} onChange={e => set("city", e.target.value)} />
           </label>
           <label className={lbl}>Area / Locality
-            <input className={fieldCls + " mt-1.5"} required value={f.area} onChange={e => set("area", e.target.value)} />
+            <input className={fieldCls + " mt-1.5"} required maxLength={80} value={f.area} onChange={e => set("area", e.target.value)} />
           </label>
           <label className={lbl}>Pincode
             <input className={fieldCls + " mt-1.5"} required pattern="[0-9]{6}" maxLength={6} inputMode="numeric" value={f.pincode} onChange={e => set("pincode", e.target.value)} />
           </label>
           <label className={lbl}>Built-up area (sqft)
-            <input className={fieldCls + " mt-1.5"} type="number" min="1" required value={f.sqft} onChange={e => set("sqft", e.target.value)} />
+            <input className={fieldCls + " mt-1.5"} type="number" min="1" max="10000000" required value={f.sqft} onChange={e => set("sqft", e.target.value)} />
           </label>
           <label className={lbl}>Bedrooms (0 for plots / commercial)
             <select className={fieldCls + " mt-1.5"} value={f.beds} onChange={e => set("beds", e.target.value)}>
@@ -226,7 +231,7 @@ function DetailsEditor({ property: p, onClose, onSaved }) {
             </select>
           </label>
           <label className={lbl + " sm:col-span-2"}>Description
-            <textarea className={fieldCls + " mt-1.5 min-h-[110px] resize-y"} required value={f.desc} onChange={e => set("desc", e.target.value)} />
+            <textarea className={fieldCls + " mt-1.5 min-h-[110px] resize-y"} required maxLength={5000} value={f.desc} onChange={e => set("desc", e.target.value)} />
           </label>
         </div>
 

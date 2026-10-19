@@ -17,6 +17,7 @@ const chipCls = active =>
 
 const AMENITIES = ["Parking", "Lift", "Gym", "Swimming Pool", "Security", "Power Backup", "Pet Friendly"];
 const HISTOGRAM_BUCKETS = 20;
+const PAGE_SIZE = 20; // result cards rendered per "Show more"
 
 // Buckets a list of prices into N equal-width bins between min and max.
 // Returns { counts: number[], min, max } where counts[i] = how many prices fall in that bucket.
@@ -134,6 +135,7 @@ export default function Listings() {
     description: `Browse verified ${qLabel ? `properties in ${qLabel}` : "properties across India"} on Nestora — filter by budget, BHK, furnishing and locality, view them on a map and book a free site visit.`
   });
   const [list, setList] = useState([]);
+  const [shown, setShown] = useState(PAGE_SIZE);
   const [loading, setLoading] = useState(true);
   const [sort, setSort] = useState("");
   const [showMap, setShowMap] = useState(false);
@@ -196,7 +198,7 @@ export default function Listings() {
       queryParams.set("radius", String(radius));
     }
     api.get("/properties?" + queryParams.toString())
-      .then(d => setList(d.properties))
+      .then(d => { setList(d.properties); setShown(PAGE_SIZE); })
       .catch(() => setList([]))
       .finally(() => setLoading(false));
   }, [params, hasExplicitLocation, loc, radius]);
@@ -493,9 +495,18 @@ export default function Listings() {
             {loading ? (
               <SkeletonGrid count={6} />
             ) : sorted.length ? (
-              <div className="grid gap-5 sm:grid-cols-2">
-                {sorted.map((p, i) => <PropertyCard key={p.id} p={p} delay={Math.min(i, 6) * 60} />)}
-              </div>
+              <>
+                {/* 20 cards at a time keeps the page light; the map still shows every match. */}
+                <div className="grid gap-5 sm:grid-cols-2">
+                  {sorted.slice(0, shown).map((p, i) => <PropertyCard key={p.id} p={p} delay={Math.min(i % PAGE_SIZE, 6) * 60} />)}
+                </div>
+                {sorted.length > shown && (
+                  <button
+                    onClick={() => setShown(n => n + PAGE_SIZE)}
+                    className="mx-auto mt-6 block rounded-xl border border-slate-200 bg-white px-6 py-2.5 text-sm font-bold text-slate-700 hover:border-emerald-400 hover:text-emerald-700"
+                  >Show more ({sorted.length - shown} more)</button>
+                )}
+              </>
             ) : (
               <div className="py-20 text-center text-slate-500">
                 <h3 className="text-lg font-bold text-slate-700">No properties match</h3>

@@ -9,7 +9,7 @@ import { AppModule } from "./app.module";
 // Keep in sync with the headers block in client/vercel.json (production serves the SPA from Vercel).
 const CSP = [
   "default-src 'self'", "script-src 'self'", "object-src 'none'", "base-uri 'self'", "form-action 'self'",
-  "frame-ancestors 'none'", "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+  "frame-ancestors 'none'", "frame-src https://www.youtube-nocookie.com", "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
   "font-src 'self' data: https://fonts.gstatic.com", "img-src 'self' data: blob: https:",
   "media-src 'self' data: blob: https:", "connect-src 'self' https:"
 ].join("; ");

@@ -11,6 +11,7 @@ import PropertyCard from "../components/PropertyCard.jsx";
 import { SkeletonProperty } from "../components/Skeleton.jsx";
 import { CalendarIcon, MailIcon, WaIcon, HeartIcon, PinIcon } from "../components/icons.jsx";
 import Chatbot from "../components/Chatbot.jsx";
+import VideoPlayer from "../components/VideoPlayer.jsx";
 
 const fieldCls = "w-full rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 text-sm outline-none focus:ring-2 focus:ring-emerald-500";
 const btnBase = "flex w-full items-center justify-center gap-2 rounded-xl py-3 text-sm font-bold transition-all";
@@ -75,19 +76,38 @@ export default function Property() {
 
   if (locked) {
     const next = encodeURIComponent(`/property/${p.id}`);
+    // Public preview (also what Google indexes): up to 4 photos and the start of the description.
+    const previewPhotos = p.photos?.length ? p.photos : [p.img].filter(Boolean);
     return (
       <div className="mx-auto mt-8 w-[min(1000px,94%)] pb-10">
         <Link to="/listings" className="text-sm font-bold text-emerald-700 hover:underline">← Back to search</Link>
         <div className="mt-4 grid items-start gap-7 md:grid-cols-[1.4fr_1fr]">
           <div className="overflow-hidden rounded-3xl shadow-xl shadow-slate-900/10 ring-1 ring-slate-200">
             <div className="aspect-video bg-slate-200">
-              <img src={p.img} alt={p.title} className="h-full w-full object-cover" onError={e => { e.currentTarget.style.display = "none"; }} />
+              <img src={mainImg || p.img} alt={p.title} className="h-full w-full object-cover" onError={e => { e.currentTarget.style.display = "none"; }} />
             </div>
+            {previewPhotos.length > 1 && (
+              <div className="grid grid-cols-4 gap-2 bg-white p-2.5">
+                {previewPhotos.map(ph => (
+                  <img key={ph} src={ph} alt={`${p.title} — photo`} loading="lazy" onClick={() => setMainImg(ph)}
+                    className={`aspect-[4/3] cursor-pointer rounded-lg object-cover ring-2 ${ph === (mainImg || p.img) ? "ring-emerald-500" : "ring-transparent hover:ring-emerald-200"}`} />
+                ))}
+              </div>
+            )}
             <div className="bg-white p-5">
               <h1 className="text-xl font-extrabold tracking-tight">{p.title}</h1>
               <p className="mt-1 flex items-center gap-1.5 text-sm text-slate-500"><PinIcon size={14} /> {p.area}, {p.city} — {p.pincode}</p>
               <p className="mt-3 text-2xl font-extrabold text-emerald-700">{fmtPrice(p.priceINR, p.type === "rent", currency)}</p>
               <p className="mt-1 text-sm text-slate-500">{p.propertyType || "Property"} · {p.sqft} sqft{p.beds ? ` · ${p.beds} BHK` : ""}</p>
+              {p.descExcerpt && (
+                <div className="mt-4 border-t border-slate-100 pt-4">
+                  <h2 className="text-sm font-extrabold">About this property</h2>
+                  <p className="mt-1.5 text-sm leading-relaxed text-slate-500">{p.descExcerpt}</p>
+                  <Link to={`/login?mode=signup&next=${next}`} className="mt-1.5 inline-block text-sm font-bold text-emerald-700 hover:underline">
+                    {p.descExcerpt.endsWith("…") ? "Sign up free to read more →" : "Sign up free for all photos, video and visit booking →"}
+                  </Link>
+                </div>
+              )}
             </div>
           </div>
           <div className="rounded-3xl bg-white p-6 shadow-xl shadow-slate-900/5 ring-1 ring-slate-200">
@@ -95,7 +115,7 @@ export default function Property() {
             <p className="mt-2 text-sm text-slate-500">
               {user
                 ? "Your account isn't verified yet. Log in with an email code (or Google) to unlock the full listing."
-                : "The full description, photo gallery, walkthrough video, map, EMI estimate and site-visit booking are available to members. It's free — sign up with Google or your email."}
+                : "The full description, all photos, walkthrough video, map, EMI estimate, AI assistant and site-visit booking are available to members. It's free — sign up with Google or your email."}
             </p>
             {!user && <Link to={`/login?mode=signup&next=${next}`}
               className="mt-5 block rounded-xl bg-gradient-to-r from-emerald-600 to-teal-500 py-3 text-center font-bold text-white shadow-lg shadow-emerald-600/25 hover:brightness-110">
@@ -163,7 +183,7 @@ export default function Property() {
           {p.video && (
             <div className="mt-6 rounded-3xl bg-white p-6 ring-1 ring-slate-200">
               <h3 className="mb-3 font-extrabold">Video tour</h3>
-              <video controls className="w-full rounded-xl" src={p.video} />
+              <VideoPlayer src={p.video} title={`${p.title} — video tour`} />
             </div>
           )}
 

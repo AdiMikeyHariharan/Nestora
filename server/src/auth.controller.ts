@@ -1,5 +1,8 @@
 import { Body, Controller, Get, Post, Query, Req, Res, HttpException } from "@nestjs/common";
 import { DbService, GOOGLE_TEMP_PREFIX } from "./db.service";
+import { text, email, newPassword, oneOf, optOneOf, optPhone, clip } from "./validate";
+
+const ROLES = ["buyer/seller", "agent"] as const;
 import * as crypto from "node:crypto";
 
 const err = (code: number, msg: string) => new HttpException({ error: msg }, code);
@@ -16,23 +19,23 @@ export class AuthController {
 
   @Post("signup")
   async signup(@Body() body: any) {
-    const { name, email, password, role, phone } = body;
-    if (!name || !email || !password || password.length < 6)
-      throw err(400, "Name, email and a 6+ char password are required");
-    if (!role || !["buyer/seller", "agent"].includes(role))
-      throw err(400, "Valid role is required (buyer/seller or agent)");
-    const em = email.trim().toLowerCase();
+    const name = text(body.name, "Name", { max: 80 });
+    const em = email(body.email);
+    const password = newPassword(body.password);
+    const role = oneOf(body.role, "Role", ROLES);
+    const phone = optPhone(body.phone);
     const { rows } = await this.db.q("SELECT 1 FROM users WHERE email = $1", [em]);
     if (rows.length) throw err(409, "Account exists — please login");
     await this.db.q("INSERT INTO users (email,name,password,role,phone) VALUES ($1,$2,$3,$4,$5)",
-      [em, name.trim(), this.db.hashPassword(password), role, phone || null]);
+      [em, name, this.db.hashPassword(password), role, phone]);
     await this.db.issueOtp(em);
     return { needsOtp: true, email: em };
   }
 
   @Post("verify")
   async verify(@Body() body: any) {
-    const em = (body.email || "").trim().toLowerCase();
+    const em = email(body.email);
+    if (typeof body.otp !== "string" && typeof body.otp !== "number") throw err(400, "Enter the 6-digit code");
     const { rows: [u] } = await this.db.q("SELECT * FROM users WHERE email = $1", [em]);
     if (!u) throw err(404, "No such account");
     // 5 wrong guesses burn the code, so a 6-digit OTP can't be brute-forced.
@@ -50,7 +53,7 @@ export class AuthController {
 
   @Post("resend")
   async resend(@Body() body: any) {
-    const em = (body.email || "").trim().toLowerCase();
+    const em = email(body.email);
     const { rows } = await this.db.q("SELECT 1 FROM users WHERE email = $1", [em]);
     if (!rows.length) throw err(404, "No such account");
     await this.db.issueOtp(em);
@@ -59,11 +62,13 @@ export class AuthController {
 
   @Post("login")
   async login(@Body() body: any) {
-    const em = (body.email || "").trim().toLowerCase();
+    const em = email(body.email);
+    // A non-text or over-long password simply fails the check (still counts as a failed attempt).
+    const password = typeof body.password === "string" && body.password.length <= 128 ? body.password : "";
     const { rows: [u] } = await this.db.q("SELECT * FROM users WHERE email = $1", [em]);
     if (u?.locked_until && new Date(u.locked_until) > new Date())
       throw err(429, "Too many failed attempts — try again in 15 minutes, or sign in with an email code");
-    if (!u || !u.password || !this.db.checkPassword(body.password || "", u.password)) {
+    if (!u || !u.password || !this.db.checkPassword(password, u.password)) {
       // Lock the account for 15 minutes after 10 straight failures.
       if (u) await this.db.q(`UPDATE users SET
           failed_logins = CASE WHEN failed_logins + 1 >= ${MAX_FAILED_LOGINS} THEN 0 ELSE failed_logins + 1 END,
@@ -78,7 +83,7 @@ export class AuthController {
 
   @Post("login-otp")
   async loginOtp(@Body() body: any) {
-    const em = (body.email || "").trim().toLowerCase();
+    const em = email(body.email);
     const { rows: [u] } = await this.db.q("SELECT * FROM users WHERE email = $1", [em]);
     if (!u) throw err(404, "No account found with this email");
     await this.db.issueOtp(em);
@@ -160,13 +165,13 @@ export class AuthController {
         // 'buyer/seller' is the valid role (plain 'buyer' fails the role checks and
         // hides the user's own listings in the dashboard).
         await this.db.q(`INSERT INTO users (email, name, password, role, verified) VALUES ($1,$2,NULL,'buyer/seller',TRUE)`,
-          [em, info.name || em]);
+          [em, clip(info.name, 80) || em]);
       }
-      
+
       // Generate a temporary Google SSO token to let them set a password (for new accounts or passwordless accounts)
       const tempToken = await this.db.createSession(em, GOOGLE_TEMP_PREFIX);
 
-      const name = u ? u.name : (info.name || em);
+      const name = u ? u.name : (clip(info.name, 80) || em);
       res.redirect(PUBLIC_URL + `/login#google_sso=1&temp_token=${tempToken}&email=${encodeURIComponent(em)}&name=${encodeURIComponent(name)}&has_password=false`);
     } catch (e) {
       console.error("Google SSO Callback error:", e);
@@ -176,7 +181,8 @@ export class AuthController {
 
   @Post("google/confirm")
   async googleConfirm(@Body() body: any) {
-    const { temp_token, password } = body;
+    const { temp_token } = body;
+    const password = typeof body.password === "string" ? body.password : "";
     if (typeof temp_token !== "string" || !temp_token.startsWith(GOOGLE_TEMP_PREFIX)) {
       throw err(400, "Invalid session");
     }
@@ -190,24 +196,25 @@ export class AuthController {
     const { rows: [u] } = await this.db.q("SELECT * FROM users WHERE email = $1", [em]);
     if (!u) throw err(404, "User not found");
 
+    // Validate the new-account fields before the single-use token is spent, so a typo
+    // doesn't force the user to start Google sign-in again.
+    const role = u.password ? null : optOneOf(body.role, "Role", ROLES, "buyer/seller");
+    const phone = u.password ? null : optPhone(body.phone);
+    if (!u.password && password) newPassword(password);
+
     // Delete the temporary session (single use — also caps password guesses at one)
     await this.db.q("DELETE FROM sessions WHERE token = $1", [this.db.hashToken(temp_token)]);
-    
+
     if (u.password) {
       // Linking Google to an existing password account — prove they own it.
-      if (!this.db.checkPassword(password || "", u.password)) {
+      if (password.length > 128 || !this.db.checkPassword(password, u.password)) {
         throw err(401, "Incorrect password for this account");
       }
       await this.db.q("UPDATE users SET onboarded = TRUE WHERE email = $1", [em]);
     } else {
-      const role = body.role || "buyer/seller";
-      if (!["buyer/seller", "agent"].includes(role)) throw err(400, "Valid role is required");
-      const phone = body.phone || null;
-
       // Password is optional: Google is already proof of identity. Only set one if
       // they actually want to be able to sign in with email/password too.
       if (password) {
-        if (password.length < 6) throw err(400, "Password must be at least 6 characters");
         await this.db.q("UPDATE users SET password = $1, role = $2, phone = $3, onboarded = TRUE WHERE email = $4",
           [this.db.hashPassword(password), role, phone, em]);
       } else {

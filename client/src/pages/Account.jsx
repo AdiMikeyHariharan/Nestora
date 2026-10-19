@@ -4,6 +4,7 @@ import { api } from "../api.js";
 import { useApp } from "../store.jsx";
 import PropertyCard from "../components/PropertyCard.jsx";
 import CheckoutModal from "../components/CheckoutModal.jsx";
+import CompareListings from "../components/CompareListings.jsx";
 
 const pillLabel = s => ({
   paid: "Paid", unpaid: "Unpaid", confirmed: "Confirmed ✓",
@@ -31,6 +32,7 @@ export default function Account() {
   const [mine, setMine] = useState([]);
   const [saved, setSaved] = useState([]);
   const [leads, setLeads] = useState([]);
+  const [stats, setStats] = useState({}); // per-listing views / interest / visits / saves
   const [payInvoice, setPayInvoice] = useState(null);
   const [cal, setCal] = useState({ configured: false, connected: false });
   const [params, setParams] = useSearchParams();
@@ -70,12 +72,14 @@ export default function Account() {
 
   const load = useCallback(async () => {
     try {
-      const [b, i, all, l] = await Promise.all([
-        api.get("/bookings"), 
-        api.get("/invoices"), 
+      const [b, i, all, l, st] = await Promise.all([
+        api.get("/bookings"),
+        api.get("/invoices"),
         api.get("/properties"),
-        api.get("/leads").catch(() => ({ leads: [] }))
+        api.get("/leads").catch(() => ({ leads: [] })),
+        api.get("/account/listing-stats").catch(() => ({ stats: {} }))
       ]);
+      setStats(st.stats || {});
       setBookings(b.bookings);
       setInvoices(i.invoices);
       setMine(all.properties.filter(p => p.postedBy === user.email));
@@ -306,7 +310,10 @@ export default function Account() {
 
         <SectionHead eyebrow="Saved" title="My shortlist" />
         {saved.length ? (
-          <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">{saved.map(p => <PropertyCard key={p.id} p={p} />)}</div>
+          <>
+            <CompareListings listings={saved} />
+            <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">{saved.map(p => <PropertyCard key={p.id} p={p} />)}</div>
+          </>
         ) : (
           <div className="py-10 text-center">
             <h3 className="font-bold text-slate-700">No shortlisted homes yet</h3>
@@ -382,6 +389,16 @@ export default function Account() {
             {mine.map(p => (
               <div key={p.id} className="flex flex-col gap-2.5">
                 <PropertyCard p={p} />
+                {stats[p.id] && (
+                  <div className="grid grid-cols-4 gap-1 rounded-xl bg-white p-2.5 text-center ring-1 ring-slate-200" title="Views and visitors: last 30 days. Others: all time.">
+                    {[["Views", stats[p.id].views], ["Interested", stats[p.id].interested], ["Visits", stats[p.id].bookings], ["Saved", stats[p.id].saved]].map(([label, n]) => (
+                      <div key={label}>
+                        <p className="text-base font-extrabold text-slate-800">{n}</p>
+                        <p className="text-[10px] font-bold uppercase tracking-wide text-slate-400">{label}</p>
+                      </div>
+                    ))}
+                  </div>
+                )}
                 <button
                   onClick={() => removeListing(p.id)}
                   className="rounded-xl border border-slate-200 py-2 text-sm font-bold text-slate-500 hover:border-rose-300 hover:text-rose-600"

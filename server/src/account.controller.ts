@@ -1,9 +1,17 @@
 import { Body, Controller, Get, Post, Query, Req, Res, HttpException } from "@nestjs/common";
 import * as ExcelJS from "exceljs";
 import {
-  cleanHistory, cleanUserText, looksLikeInjection, detectInjection, recordInjection, isChatPaused, clientIp, PAUSED_MSG,
+  cleanHistory, cleanUserText, detectInjection, recordInjection, isChatPaused, clientIp, PAUSED_MSG,
   MAX_HISTORY, OFF_TOPIC_REPLY, PROMPT_RULES, guardReply, signReply, takeLlmCall, llmSignal
 } from "./llm-guard";
+import { relevantListings, inventoryTable, fitHistory } from "./prompt-context";
+import * as v from "./validate";
+
+// Prompt budgets for the search assistant: ~2.5k chars of history, and answers are a
+// PROPS line plus 1–3 sentences (cards carry the details). Output tokens count against
+// Groq's per-minute limit too, so the cap is kept tight.
+const HISTORY_CHARS = 2500;
+const MAX_ANSWER_TOKENS = 200;
 import * as crypto from "node:crypto";
 import { DbService } from "./db.service";
 import { CalendarService } from "./calendar.service";
@@ -47,12 +55,15 @@ export class AccountController {
   @Post("shortlist")
   async toggle(@Body() body: any, @Req() req: any) {
     const user = await this.requireUser(req);
-    const id = body.property_id;
+    const id = v.id(body.property_id, "Listing id");
     const { rows } = await this.db.q("SELECT 1 FROM shortlist WHERE email = $1 AND property_id = $2", [user.email, id]);
     if (rows.length) {
       await this.db.q("DELETE FROM shortlist WHERE email = $1 AND property_id = $2", [user.email, id]);
       return { shortlisted: false };
     }
+    // Only real listings can be saved (removal above still works for deleted ones).
+    const { rows: exists } = await this.db.q("SELECT 1 FROM properties WHERE id = $1", [id]);
+    if (!exists.length) throw err(404, "Listing not found");
     await this.db.q("INSERT INTO shortlist (email, property_id) VALUES ($1,$2)", [user.email, id]);
     return { shortlisted: true };
   }
@@ -61,8 +72,11 @@ export class AccountController {
   @Post("bookings")
   async book(@Body() body: any, @Req() req: any) {
     const user = await this.requireUser(req);
-    const { rows: [prop] } = await this.db.q("SELECT * FROM properties WHERE id = $1", [body.property_id]);
+    const { rows: [prop] } = await this.db.q("SELECT * FROM properties WHERE id = $1", [v.id(body.property_id, "Listing id")]);
     if (!prop) throw err(404, "Property not found");
+    // Free text from the visit form ("2026-10-20, Morning (10am–12pm)"); it goes into
+    // the booking, an email and the seller's calendar event.
+    body.date_pref = v.optText(body.date_pref, "Preferred date", { max: 80 }) ?? "";
     const bid = this.db.uid("visit");
 
     // Free mode: confirm the booking immediately, no invoice/payment.
@@ -117,12 +131,13 @@ export class AccountController {
   @Post("payments/pay")
   async pay(@Body() body: any, @Req() req: any) {
     const user = await this.requireUser(req);
-    const { rows: [inv] } = await this.db.q("SELECT * FROM invoices WHERE id = $1 AND email = $2", [body.invoice_id, user.email]);
+    const method = v.optOneOf(body.method, "Payment method", ["upi", "card", "netbanking"] as const, "card");
+    const { rows: [inv] } = await this.db.q("SELECT * FROM invoices WHERE id = $1 AND email = $2", [v.id(body.invoice_id, "Invoice id"), user.email]);
     if (!inv) throw err(404, "Invoice not found");
     if (inv.status === "paid") throw err(400, "Already paid");
     const ref = "pay_" + crypto.randomBytes(8).toString("hex");
     await this.db.q("UPDATE invoices SET status='paid', method=$1, gateway_ref=$2, paid_at=now() WHERE id=$3",
-      [body.method || "card", ref, inv.id]);
+      [method, ref, inv.id]);
     if (inv.booking_id) await this.db.q("UPDATE bookings SET status='confirmed' WHERE id=$1", [inv.booking_id]);
     this.db.sendEmail(user.email, "Payment received — " + inv.id,
       `We received ₹${inv.amount} (ref ${ref}). Your site visit is confirmed — our advisor will call to fix the slot.`);
@@ -155,19 +170,25 @@ export class AccountController {
       }
     }
     // Only user turns and server-signed assistant turns get through (see llm-guard).
-    const recent = cleanHistory(raw);
+    // Recent turns within a character budget, starting with a user turn.
+    const recent = fitHistory(cleanHistory(raw), m => m.content, HISTORY_CHARS);
+    while (recent.length && recent[0].role !== "user") recent.shift();
     if (recent[recent.length - 1]?.role !== "user") throw err(400, "messages must end with a user message");
     // Out of daily LLM budget → 503, and the widget falls back to its rule-based search.
     if (!takeLlmCall()) throw err(503, "AI assistant is busy — try again later");
 
-    // Seller-written titles that read like instructions never reach the prompt (indirect injection).
-    const { rows } = await this.db.q(
-      "SELECT id,title,type,category,city,area,pincode,price_inr,beds,baths,sqft,furnishing FROM properties ORDER BY created_at DESC LIMIT 60")
-      .then(r => ({ rows: r.rows.filter((p: any) => !looksLikeInjection(p.title)) }));
-    const system = `You are Nestora's professional real-estate assistant (India). Be concise, warm and factual — no emoji.
-Answer only from this live inventory (price_inr is INR; type buy=sale, rent=monthly):
-<listing_data>${JSON.stringify(rows)}</listing_data>
-When recommending homes, end with a line: PROPS:<comma-separated ids> so the UI can render cards. To book a visit, tell them to open the property page and select "Schedule a visit".
+    // Only the listings that fit what the visitor asked for (their last few messages),
+    // as a compact table — not the whole catalogue as JSON (see prompt-context).
+    const { rows: all } = await this.db.q(
+      "SELECT id,title,type,city,area,price_inr,beds,sqft,property_type,furnishing FROM properties ORDER BY created_at DESC LIMIT 500");
+    const asked = recent.filter(m => m.role === "user").slice(-3).map(m => m.content).join(" ");
+    const rows = relevantListings(all, asked);
+    const system = `You are Nestora's real-estate assistant (India). Be concise, warm and factual, no emoji.
+Answer only from these ${rows.length} listings, the best matches for this conversation out of ${all.length}. If none fit, say so and suggest browsing all listings.
+<listing_data>
+${inventoryTable(rows)}
+</listing_data>
+Reply format: when recommending homes, the FIRST line is PROPS:<up to 4 comma-separated ids>; the app shows each as a card with its details. Then 1-3 short plain sentences (no lists, no markdown, don't repeat card details). To book a visit, tell them to open the property page and select "Schedule a visit".
 ${PROMPT_RULES}`;
 
     let text = "";
@@ -177,7 +198,7 @@ ${PROMPT_RULES}`;
           method: "POST", signal: llmSignal(),
           headers: { Authorization: `Bearer ${groqKey}`, "Content-Type": "application/json" },
           body: JSON.stringify({
-            model: GROQ_MODEL, max_tokens: 600, temperature: 0.3,
+            model: GROQ_MODEL, max_tokens: MAX_ANSWER_TOKENS, temperature: 0.3,
             messages: [{ role: "system", content: system }, ...recent]
           })
         });
@@ -188,18 +209,21 @@ ${PROMPT_RULES}`;
         const resp = await fetch("https://api.anthropic.com/v1/messages", {
           method: "POST", signal: llmSignal(),
           headers: { "x-api-key": anthKey, "anthropic-version": "2023-06-01", "content-type": "application/json" },
-          body: JSON.stringify({ model: "claude-haiku-4-5-20251001", max_tokens: 500, system, messages: recent })
+          body: JSON.stringify({ model: "claude-haiku-4-5-20251001", max_tokens: MAX_ANSWER_TOKENS, system, messages: recent })
         });
         if (!resp.ok) throw new Error("Anthropic " + resp.status);
         const data: any = await resp.json();
         text = data.content?.[0]?.text || "";
       }
     } catch (e) {
+      // Status only (e.g. "Groq 429" = rate limit) — enough to diagnose, no user content.
+      console.warn("AI search assistant failed:", (e as any).message);
       throw err(502, "AI service unavailable");
     }
 
     // Only ids that are really in the inventory, and a filtered reply (links, emails, prompt leaks).
-    const ids = (text.match(/PROPS:([\w,-]+)/)?.[1] || "").split(",").filter(id => rows.some(r => r.id === id)).slice(0, 6);
+    const ids = (text.match(/PROPS:\s*([\w-]+(?:\s*,\s*[\w-]+)*)/)?.[1] || "").split(",").map(s => s.trim())
+      .filter(id => rows.some(r => r.id === id)).slice(0, 6);
     const reply = guardReply(text.replace(/PROPS:\s*[\w,\- ]*/gi, "")) || OFF_TOPIC_REPLY;
     return { reply, sig: signReply(reply), propertyIds: ids };
   }
@@ -207,9 +231,11 @@ ${PROMPT_RULES}`;
   // ---- Chatbot conversation log ----
   @Post("chat/log")
   async chatLog(@Body() body: any) {
-    if (!body.session || !body.who || !body.text) throw err(400, "session, who, text required");
+    const session = v.id(body.session, "Chat session");
+    const who = v.oneOf(body.who, "Sender", ["me", "bot"] as const);
+    const msg = v.text(body.text, "Message", { max: 2000, multiline: true });
     await this.db.q("INSERT INTO chat_messages (session, who, text) VALUES ($1,$2,$3)",
-      [String(body.session).slice(0, 64), body.who === "me" ? "user" : "bot", String(body.text).slice(0, 2000)]);
+      [session, who === "me" ? "user" : "bot", msg]);
     return { ok: true };
   }
 
@@ -219,13 +245,29 @@ ${PROMPT_RULES}`;
     const user = await this.db.userFromRequest(req);
     if (!user) throw err(401, "Login required");
     if (user.role !== "admin") throw err(403, "Admins only");
-    if (!session) throw err(400, "session required");
     const { rows } = await this.db.q(
-      "SELECT who, text, created_at FROM chat_messages WHERE session = $1 ORDER BY id ASC LIMIT 200", [session]);
+      "SELECT who, text, created_at FROM chat_messages WHERE session = $1 ORDER BY id ASC LIMIT 200", [v.id(session, "Chat session")]);
     return { messages: rows };
   }
 
   // ---- Leads (for sellers) ----
+  // ---- Seller stats: how each of my listings is doing ----
+  // Views/visitors over the last 30 days (page views, sellers' own visits excluded at
+  // tracking time); interested buyers, visits booked and saves are all-time.
+  @Get("account/listing-stats")
+  async listingStats(@Req() req: any) {
+    const user = await this.requireUser(req);
+    const { rows } = await this.db.q(`
+      SELECT p.id,
+        (SELECT count(*)::int FROM page_views v WHERE v.property_id = p.id AND v.created_at > now() - interval '30 days') AS views,
+        (SELECT count(DISTINCT v.visitor_id)::int FROM page_views v WHERE v.property_id = p.id AND v.created_at > now() - interval '30 days') AS visitors,
+        (SELECT count(*)::int FROM leads l WHERE l.property_id = p.id) AS interested,
+        (SELECT count(*)::int FROM bookings b WHERE b.property_id = p.id) AS bookings,
+        (SELECT count(*)::int FROM shortlist s WHERE s.property_id = p.id) AS saved
+      FROM properties p WHERE p.posted_by = $1`, [user.email]);
+    return { stats: Object.fromEntries(rows.map(({ id, ...s }) => [id, s])) };
+  }
+
   @Get("leads")
   async leads(@Req() req: any) {
     const user = await this.requireUser(req);
@@ -244,9 +286,8 @@ ${PROMPT_RULES}`;
   async updateLeadStatus(@Body() body: any, @Req() req: any, @Query("id") id: string) {
     // We can get id from req.params manually since @Param isn't imported, but let's just use @Body
     const user = await this.requireUser(req);
-    const leadId = req.params.id || body.id;
-    const { status } = body;
-    if (!["accepted", "rejected"].includes(status)) throw err(400, "Invalid status");
+    const leadId = v.id(req.params.id, "Lead id");
+    const status = v.oneOf(body.status, "Status", ["accepted", "rejected"] as const);
     
     // Ensure the lead belongs to the current user
     const { rows: [lead] } = await this.db.q("SELECT * FROM leads WHERE id = $1 AND seller_email = $2", [leadId, user.email]);

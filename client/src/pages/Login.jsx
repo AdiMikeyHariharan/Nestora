@@ -174,21 +174,21 @@ export default function Login() {
             <form onSubmit={submitAuth} className="space-y-3.5">
               {mode === "signup" && (
                 <label className="block text-xs font-bold text-slate-600">Full name
-                  <input className={fieldCls + " mt-1.5"} required value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} placeholder="Your name" />
+                  <input className={fieldCls + " mt-1.5"} required maxLength={80} value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} placeholder="Your name" />
                 </label>
               )}
               <label className="block text-xs font-bold text-slate-600">Email
-                <input className={fieldCls + " mt-1.5"} type="email" required value={form.email} onChange={e => setForm({ ...form, email: e.target.value })} placeholder="you@example.com" />
+                <input className={fieldCls + " mt-1.5"} type="email" required maxLength={254} value={form.email} onChange={e => setForm({ ...form, email: e.target.value })} placeholder="you@example.com" />
               </label>
               {(mode === "signup" || loginMethod === "password") && (
                 <label className="block text-xs font-bold text-slate-600">Password
-                  <input className={fieldCls + " mt-1.5"} type="password" required minLength={6} value={form.password} onChange={e => setForm({ ...form, password: e.target.value })} placeholder="••••••••" />
+                  <input className={fieldCls + " mt-1.5"} type="password" required minLength={6} maxLength={128} value={form.password} onChange={e => setForm({ ...form, password: e.target.value })} placeholder="••••••••" />
                 </label>
               )}
               {mode === "signup" && (
                 <>
                   <label className="block text-xs font-bold text-slate-600">Phone (for WhatsApp)
-                    <input className={fieldCls + " mt-1.5"} type="tel" value={form.phone} onChange={e => setForm({ ...form, phone: e.target.value })} placeholder="+1234567890" />
+                    <input className={fieldCls + " mt-1.5"} type="tel" maxLength={20} value={form.phone} onChange={e => setForm({ ...form, phone: e.target.value })} placeholder="+1234567890" />
                   </label>
                   <label className="block text-xs font-bold text-slate-600">I am a
                     <select className={fieldCls + " mt-1.5"} value={form.role} onChange={e => setForm({ ...form, role: e.target.value })}>
@@ -284,7 +284,7 @@ export default function Login() {
                 <label className="block text-xs font-bold text-slate-600">Password
                   <input
                     className={fieldCls + " mt-1.5"}
-                    type="password" required minLength={6}
+                    type="password" required minLength={6} maxLength={128}
                     value={form.password}
                     onChange={e => setForm({ ...form, password: e.target.value })}
                     placeholder="Enter password"
@@ -299,7 +299,7 @@ export default function Login() {
                     </select>
                   </label>
                   <label className="block text-xs font-bold text-slate-600">Phone (for WhatsApp)
-                    <input className={fieldCls + " mt-1.5"} type="tel" value={form.phone} onChange={e => setForm({ ...form, phone: e.target.value })} placeholder="+91 90000 00000" />
+                    <input className={fieldCls + " mt-1.5"} type="tel" maxLength={20} value={form.phone} onChange={e => setForm({ ...form, phone: e.target.value })} placeholder="+91 90000 00000" />
                   </label>
                   {/* Google already proves who they are — a password is only needed if
                       they also want to sign in with email. */}
@@ -307,7 +307,7 @@ export default function Login() {
                     Password <span className="font-medium text-slate-400">— optional</span>
                     <input
                       className={fieldCls + " mt-1.5"}
-                      type="password" minLength={6}
+                      type="password" minLength={6} maxLength={128}
                       value={form.password}
                       onChange={e => setForm({ ...form, password: e.target.value })}
                       placeholder="Set one only if you also want email login"

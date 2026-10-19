@@ -1,5 +1,6 @@
 import { Body, Controller, Get, Post, Query, Req, HttpException } from "@nestjs/common";
 import { DbService } from "./db.service";
+import * as v from "./validate";
 
 const err = (code: number, msg: string) => new HttpException({ error: msg }, code);
 const BOT_UA = /bot|crawl|spider|slurp|preview|headless|lighthouse/i;
@@ -13,9 +14,11 @@ export class MetricsController {
   // Page-view beacon, sent by the client on every route change.
   @Post("track")
   async track(@Body() body: any, @Req() req: any) {
-    const visitor = String(body.visitor || "").slice(0, 64);
-    const path = String(body.path || "").slice(0, 300);
-    if (!visitor || !path.startsWith("/") || BOT_UA.test(req.headers["user-agent"] || "")) return { ok: true };
+    // A random per-browser id and a page path (the SPA sends location.pathname only).
+    const visitor = v.id(body.visitor, "Visitor id");
+    const path = typeof body.path === "string" && body.path.length <= 300 && /^\/[\w\-./%~]*$/.test(body.path) ? body.path : null;
+    if (!path) throw err(400, "Path is invalid");
+    if (BOT_UA.test(req.headers["user-agent"] || "")) return { ok: true };
     const user = await this.db.userFromRequest(req);
     if (user?.role === "admin") return { ok: true };
     const propertyId = path.match(/^\/property\/([^/?#]+)/)?.[1] || null;

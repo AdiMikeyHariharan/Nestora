@@ -1,16 +1,40 @@
 import { Controller, Delete, Get, Param, Patch, Post, Query, Body, Req, Res, HttpException } from "@nestjs/common";
 import { DbService } from "./db.service";
 import { GeoService } from "./geo.service";
-import { checkSegmentType } from "./property-types";
+import * as v from "./validate";
 import { cleanUserText, detectInjection, recordInjection } from "./llm-guard";
 
 const err = (code: number, msg: string) => new HttpException({ error: msg }, code);
 // Media is stored as base64 data URLs (or https links). SVG is refused: it can carry script.
 const isImage = (x: any) => typeof x === "string" && /^(data:image\/(?!svg)[\w.+-]+;base64,|https:\/\/)/i.test(x);
 const isVideo = (x: any) => typeof x === "string" && /^(data:video\/[\w.+-]+;base64,|https:\/\/)/i.test(x);
+// YouTube links (big walkthroughs that are too large to upload) are stored in one
+// canonical form without tracking parameters. Mirrors client/src/lib/youtube.js.
+const YT_HOSTS = /^(www\.|m\.|music\.)?(youtube\.com|youtube-nocookie\.com|youtu\.be)$/i;
+function normalizeVideo(v: any): string | null {
+  if (typeof v !== "string" || !v) return null;
+  if (!isVideo(v)) throw err(400, "Unsupported video format");
+  if (!/^https:/i.test(v)) return v;
+  let u: URL;
+  try { u = new URL(v); } catch { throw err(400, "Invalid video link"); }
+  if (!YT_HOSTS.test(u.hostname)) return v;
+  const id = /youtu\.be$/i.test(u.hostname)
+    ? u.pathname.slice(1)
+    : u.searchParams.get("v") || u.pathname.match(/^\/(?:shorts|live|embed)\/([^/?#]+)/)?.[1];
+  if (!/^[\w-]{11}$/.test(id || "")) throw err(400, "That isn't a valid YouTube video link");
+  return `https://www.youtube.com/watch?v=${id}`;
+}
 // Full listing details (description, gallery, video) are for signed-up users only;
 // everyone else — and every list response — gets the card-level teaser.
 const teaser = (p: any) => { const { desc, photos, video, ...rest } = p; return rest; };
+// What a signed-out visitor (and Google) sees on a listing page: the teaser plus a few
+// photos and the start of the description, so the page is worth indexing. The full
+// description, video, booking and chat stay members-only.
+const preview = (p: any) => {
+  const d = String(p.desc || "");
+  const cut = d.length > 280 ? d.slice(0, 280).replace(/\s+\S*$/, "") + "…" : d;
+  return { ...teaser(p), photos: (p.photos || []).slice(0, 4), descExcerpt: cut };
+};
 
 @Controller()
 export class PropertiesController {
@@ -65,9 +89,9 @@ export class PropertiesController {
   }
 
   @Get("geocode")
-  async geocode(@Query("q") text: string) {
-    if (!text) throw err(400, "q required");
-    try { return { results: await this.geo.geocode(text) }; }
+  async geocode(@Query("q") q: string) {
+    const place = v.text(q, "Search", { max: 120 });
+    try { return { results: await this.geo.geocode(place) }; }
     catch { throw err(502, "Geocoder unavailable — try again"); }
   }
 
@@ -75,26 +99,35 @@ export class PropertiesController {
   async list(@Query() p: Record<string, string>, @Req() req: any) {
     const where: string[] = [], params: any[] = [];
     const add = (sql: string, val: any) => { params.push(val); where.push(sql.replace("?", "$" + params.length)); };
-    if (p.q) add("(city || ' ' || area) ILIKE ?", "%" + p.q + "%");
-    if (p.pincode) add("pincode LIKE ?", p.pincode + "%");
-    if (p.type) add("type = ?", p.type);
-    if (p.category) add("category = ?", p.category);
-    if (p.budget) add("price_inr <= ?", parseInt(p.budget, 10));
-    if (p.minBudget) add("price_inr >= ?", parseInt(p.minBudget, 10));
-    if (p.beds) add("beds = ?", parseFloat(p.beds));
-    if (p.furnishing) add("furnishing = ?", p.furnishing);
-    if (p.segment) add("segment = ?", p.segment);
-    if (p.propertyType) add("property_type = ?", p.propertyType);
+    // Every filter is checked before it reaches the query; text wildcards match literally.
+    if (p.q) add("(city || ' ' || area) ILIKE ?", "%" + v.likeEscape(v.text(p.q, "Search", { max: 80 })) + "%");
+    if (p.pincode) {
+      if (!/^\d{1,6}$/.test(p.pincode)) throw err(400, "Pincode must be digits");
+      add("pincode LIKE ?", p.pincode + "%");
+    }
+    if (p.type) add("type = ?", v.oneOf(p.type, "Listing for", v.LISTING_TYPES));
+    if (p.category) add("category = ?", v.oneOf(p.category, "Resale or new", v.CATEGORIES));
+    if (p.budget) add("price_inr <= ?", v.num(p.budget, "Budget", { min: 0, max: 1e11 }));
+    if (p.minBudget) add("price_inr >= ?", v.num(p.minBudget, "Minimum budget", { min: 0, max: 1e11 }));
+    if (p.beds) add("beds = ?", v.num(p.beds, "Bedrooms", { min: 0, max: 20 }));
+    if (p.furnishing) add("furnishing = ?", v.oneOf(p.furnishing, "Furnishing", v.FURNISHING));
+    if (p.segment) add("segment = ?", v.oneOf(p.segment, "Residential/commercial", v.SEGMENTS));
+    if (p.propertyType) add("property_type = ?", v.oneOf(p.propertyType, "Property type", v.ALL_PROPERTY_TYPES));
+    // near=<lat>,<lng>&radius=<km>
+    let near: [number, number] | null = null;
+    const radius = p.radius ? v.num(p.radius, "Radius", { min: 0.1, max: 500 }) : 10;
+    if (p.near) {
+      const [la, ln] = String(p.near).split(",");
+      near = [v.lat(la), v.lng(ln)];
+    }
     const { rows } = await this.db.q(
       `SELECT * FROM properties ${where.length ? "WHERE " + where.join(" AND ") : ""} ORDER BY created_at DESC`, params);
     // Admins get full rows: their listing editors work from this list.
     const isAdmin = (await this.db.userFromRequest(req))?.role === "admin";
     let list = rows.map(r => isAdmin ? this.db.toApiProp(r) : teaser(this.db.toApiProp(r)));
 
-    // near=<lat>,<lng>&radius=<km> → haversine filter + distance sort
-    const near = (p.near || "").split(",").map(Number);
-    if (near.length === 2 && !near.some(isNaN)) {
-      const radius = parseFloat(p.radius || "10");
+    // near → haversine filter + distance sort
+    if (near) {
       list = list
         .filter(x => x.lat != null && x.lng != null)
         .map(x => ({ ...x, distance_km: +this.geo.distanceKm(near[0], near[1], x.lat, x.lng).toFixed(1) }))
@@ -106,10 +139,7 @@ export class PropertiesController {
 
   @Get("properties/recommended")
   async recommended(@Query("lat") latStr: string, @Query("lng") lngStr: string) {
-    if (!latStr || !lngStr) throw err(400, "lat and lng are required");
-    const lat = parseFloat(latStr);
-    const lng = parseFloat(lngStr);
-    if (isNaN(lat) || isNaN(lng)) throw err(400, "Invalid lat or lng");
+    const lat = v.lat(latStr), lng = v.lng(lngStr);
 
     const { rows } = await this.db.q("SELECT * FROM properties ORDER BY created_at DESC");
     const properties = rows.map(r => teaser(this.db.toApiProp(r)));
@@ -118,13 +148,14 @@ export class PropertiesController {
 
   @Get("properties/:id")
   async one(@Param("id") id: string, @Req() req: any) {
+    v.id(id, "Listing id");
     const { rows: [row] } = await this.db.q("SELECT * FROM properties WHERE id = $1", [id]);
     if (!row) throw err(404, "Not found");
     // Record who opened the listing for the admin interest sheet. Skip admins and
     // the seller's own views, and count repeat opens within 30 minutes once.
     const user = await this.db.userFromRequest(req);
     // Not signed up (or email not verified yet): teaser only, and the page shows a sign-up wall.
-    if (!user?.verified) return { property: teaser(this.db.toApiProp(row)), locked: true };
+    if (!user?.verified) return { property: preview(this.db.toApiProp(row)), locked: true };
     if (user.role !== "admin" && user.email !== row.posted_by)
       await this.db.q(`INSERT INTO property_views (email, property_id) SELECT $1, $2 WHERE NOT EXISTS (
         SELECT 1 FROM property_views WHERE email = $1 AND property_id = $2 AND created_at > now() - interval '30 minutes')`,
@@ -137,36 +168,32 @@ export class PropertiesController {
     const user = await this.db.userFromRequest(req);
     if (!user) throw err(401, "Login required");
     if (!user.verified) throw err(403, "Verify your email first");
-    for (const f of ["title", "type", "category", "city", "area", "pincode", "priceINR", "beds", "baths", "sqft", "desc"])
-      if (body[f] === undefined || body[f] === "") throw err(400, "Missing field: " + f);
-    const segment = body.segment || "residential";
-    const segErr = checkSegmentType(segment, body.propertyType);
-    if (segErr) throw err(400, segErr);
-    await this.rejectInjectedText(user.email, `${body.title}\n${body.desc}`);
+    const f = v.listingFields(body, true);
+    await this.rejectInjectedText(user.email, `${f.title}\n${f.desc}`);
     const photos = Array.isArray(body.photos) ? body.photos : [];
     if (photos.length > 12 || !photos.every(isImage) || (body.img && !isImage(body.img)))
       throw err(400, "Photos must be images (max 12)");
-    if (body.video && !isVideo(body.video)) throw err(400, "Unsupported video format");
+    const video = normalizeVideo(body.video);
     const id = this.db.uid("prop");
-    // best-effort geocode of the locality so the listing appears in geo search
-    let lat = body.lat ?? null, lng = body.lng ?? null;
+    // Coordinates from the client only as a valid pair; otherwise best-effort geocode
+    // of the locality so the listing appears in geo search.
+    let lat = v.optNum(body.lat, "Latitude", { min: -90, max: 90 }), lng = v.optNum(body.lng, "Longitude", { min: -180, max: 180 });
+    if ((lat == null) !== (lng == null)) throw err(400, "Send both latitude and longitude, or neither");
     if (lat == null || lng == null) {
       try {
-        const g = await this.geo.geocode(`${body.area}, ${body.city}, India`);
+        const g = await this.geo.geocode(`${f.area}, ${f.city}, India`);
         if (g[0]) { lat = g[0].lat; lng = g[0].lng; }
       } catch { /* listing still saved without coords */ }
     }
     // The listing badge reads "Dealer" only for exactly "realtor" and "Owner" for
     // anything else, so a stray user role here would label a broker's listing as
     // owner-posted. Normalise: agents always post as realtors.
-    const listingRole = user.role === "agent" ? "realtor"
-      : body.role === "realtor" ? "realtor" : "owner";
+    const listingRole = user.role === "agent" ? "realtor" : f.role;
     await this.db.q(`INSERT INTO properties (id,title,type,category,city,area,pincode,price_inr,beds,baths,sqft,description,img,photos,video,posted_by,role,lat,lng,segment,property_type,furnishing)
-      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,${["unfurnished", "semi", "furnished"].includes(body.furnishing) ? "'" + body.furnishing + "'" : "'unfurnished'"})`,
-      [id, body.title, body.type, body.category, body.city, body.area, body.pincode,
-        parseInt(body.priceINR, 10), parseFloat(body.beds), parseInt(body.baths, 10), parseInt(body.sqft, 10),
-        body.desc, body.img || body.photos?.[0] || `https://picsum.photos/seed/${id}/800/500`,
-        JSON.stringify(photos), body.video || null, user.email, listingRole, lat, lng, segment, body.propertyType]);
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22)`,
+      [id, f.title, f.type, f.category, f.city, f.area, f.pincode, f.priceINR, f.beds, f.baths, f.sqft,
+        f.desc, body.img || photos[0] || `https://picsum.photos/seed/${id}/800/500`,
+        JSON.stringify(photos), video, user.email, listingRole, lat, lng, f.segment, f.propertyType, f.furnishing]);
     return { id };
   }
 
@@ -176,24 +203,13 @@ export class PropertiesController {
     const user = await this.db.userFromRequest(req);
     if (!user) throw err(401, "Login required");
     if (user.role !== "admin") throw err(403, "Admins only");
+    v.id(id, "Listing id");
     const { rows: [row] } = await this.db.q("SELECT city, area, lat, lng FROM properties WHERE id = $1", [id]);
     if (!row) throw err(404, "Not found");
 
-    const text = (k: string) => String(body[k] ?? "").trim();
-    const num = (k: string) => Number(body[k]);
-    const title = text("title"), city = text("city"), area = text("area"), pincode = text("pincode"), desc = text("desc");
-    if (!title || !city || !area || !desc) throw err(400, "Title, city, area and description are required");
+    const f = v.listingFields(body);
+    const { title, city, area, pincode, desc } = f;
     await this.rejectInjectedText(user.email, `${title}\n${desc}`);
-    if (!/^\d{6}$/.test(pincode)) throw err(400, "Pincode must be 6 digits");
-    if (!["buy", "rent"].includes(body.type)) throw err(400, "Type must be buy or rent");
-    if (!["resale", "new"].includes(body.category)) throw err(400, "Category must be resale or new");
-    if (!["owner", "realtor"].includes(body.role)) throw err(400, "Posted by must be owner or realtor");
-    if (!["unfurnished", "semi", "furnished"].includes(body.furnishing)) throw err(400, "Invalid furnishing");
-    const segErr = checkSegmentType(body.segment, body.propertyType);
-    if (segErr) throw err(400, segErr);
-    const price = Math.round(num("priceINR")), sqft = Math.round(num("sqft")), beds = num("beds"), baths = Math.round(num("baths"));
-    if (!(price > 0) || !(sqft > 0)) throw err(400, "Price and size must be positive numbers");
-    if (!(beds >= 0) || !(baths >= 0)) throw err(400, "Bedrooms and bathrooms can't be negative");
 
     // Map/landmark search depends on coordinates, so re-geocode when the locality moves.
     let lat = row.lat, lng = row.lng;
@@ -204,10 +220,14 @@ export class PropertiesController {
       } catch { /* keep the old coordinates */ }
     }
 
+    // A lower price keeps the old one for the "Price dropped" badge; a higher one clears it.
+    // (Right-hand sides in an UPDATE see the old row, so price_inr here is the old price.)
     await this.db.q(`UPDATE properties SET title=$1, type=$2, category=$3, city=$4, area=$5, pincode=$6, price_inr=$7,
+      prev_price_inr = CASE WHEN $7 < price_inr THEN price_inr WHEN $7 > price_inr THEN NULL ELSE prev_price_inr END,
+      price_changed_at = CASE WHEN $7 <> price_inr THEN now() ELSE price_changed_at END,
       beds=$8, baths=$9, sqft=$10, description=$11, furnishing=$12, role=$13, lat=$14, lng=$15, segment=$16, property_type=$17 WHERE id=$18`,
-      [title, body.type, body.category, city, area, pincode, price, beds, baths, sqft, desc, body.furnishing, body.role, lat, lng,
-        body.segment, body.propertyType, id]);
+      [title, f.type, f.category, city, area, pincode, f.priceINR, f.beds, f.baths, f.sqft, desc, f.furnishing, f.role, lat, lng,
+        f.segment, f.propertyType, id]);
     const { rows: [updated] } = await this.db.q("SELECT * FROM properties WHERE id = $1", [id]);
     return { property: this.db.toApiProp(updated) };
   }
@@ -218,13 +238,13 @@ export class PropertiesController {
     const user = await this.db.userFromRequest(req);
     if (!user) throw err(401, "Login required");
     if (user.role !== "admin") throw err(403, "Admins only");
+    v.id(id, "Listing id");
     const { rows: [row] } = await this.db.q("SELECT img FROM properties WHERE id = $1", [id]);
     if (!row) throw err(404, "Not found");
     const photos: string[] = Array.isArray(body.photos) ? body.photos.filter((x: any) => typeof x === "string" && x) : [];
     if (photos.length > 12) throw err(400, "Max 12 photos");
     if (!photos.every(isImage)) throw err(400, "Photos must be images");
-    const video = typeof body.video === "string" && body.video ? body.video : null;
-    if (video && !isVideo(video)) throw err(400, "Unsupported video format");
+    const video = normalizeVideo(body.video);
     await this.db.q("UPDATE properties SET photos = $1, img = $2, video = $3 WHERE id = $4",
       [JSON.stringify(photos), photos[0] || row.img, video, id]);
     return { ok: true };
@@ -234,6 +254,7 @@ export class PropertiesController {
   async remove(@Param("id") id: string, @Req() req: any) {
     const user = await this.db.userFromRequest(req);
     if (!user) throw err(401, "Login required");
+    v.id(id, "Listing id");
     const { rows: [row] } = await this.db.q("SELECT posted_by FROM properties WHERE id = $1", [id]);
     if (!row) throw err(404, "Not found");
     if (row.posted_by !== user.email) throw err(403, "Not your listing");

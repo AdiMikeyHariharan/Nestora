@@ -106,6 +106,9 @@ export class DbService implements OnModuleInit {
       CREATE INDEX IF NOT EXISTS idx_llm_events_actor ON llm_security_events (actor, created_at);
 
       -- Brute-force protection for OTP codes and passwords.
+      -- Previous price when a listing gets cheaper, for the "Price dropped" badge.
+      ALTER TABLE properties ADD COLUMN IF NOT EXISTS prev_price_inr BIGINT;
+      ALTER TABLE properties ADD COLUMN IF NOT EXISTS price_changed_at TIMESTAMPTZ;
       ALTER TABLE users ADD COLUMN IF NOT EXISTS otp_attempts INT DEFAULT 0;
       ALTER TABLE users ADD COLUMN IF NOT EXISTS failed_logins INT DEFAULT 0;
       ALTER TABLE users ADD COLUMN IF NOT EXISTS locked_until TIMESTAMPTZ;
@@ -324,7 +327,10 @@ export class DbService implements OnModuleInit {
   publicUser(u: any) { return { name: u.name, email: u.email, role: u.role, phone: u.phone, verified: !!u.verified }; }
 
   toApiProp(row: any) {
-    const { price_inr, description, posted_by, created_at, property_type, ...rest } = row;
-    return { ...rest, priceINR: Number(price_inr), desc: description, postedBy: posted_by, createdAt: created_at, propertyType: property_type };
+    const { price_inr, description, posted_by, created_at, property_type, prev_price_inr, price_changed_at, ...rest } = row;
+    return {
+      ...rest, priceINR: Number(price_inr), desc: description, postedBy: posted_by, createdAt: created_at, propertyType: property_type,
+      prevPriceINR: prev_price_inr == null ? null : Number(prev_price_inr), priceChangedAt: price_changed_at
+    };
   }
 }

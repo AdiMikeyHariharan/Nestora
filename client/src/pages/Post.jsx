@@ -5,9 +5,10 @@ import { api } from "../api.js";
 import { useApp } from "../store.jsx";
 import { usePageMeta } from "../seo.js";
 import { PROPERTY_TYPES, hasRooms } from "../lib/propertyTypes.js";
+import { compressImage, readAsDataURL, MAX_VIDEO_MB } from "../lib/images.js";
 
 const DRAFT_KEY = "nst_post_draft";
-const readAsDataURL = f => new Promise(res => { const r = new FileReader(); r.onload = () => res(r.result); r.readAsDataURL(f); });
+const MAX_PHOTOS = 6;
 const fieldCls = "w-full rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 text-sm outline-none focus:ring-2 focus:ring-emerald-500";
 const lbl = "block text-xs font-bold text-slate-600";
 
@@ -43,14 +44,20 @@ export default function Post() {
   };
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
 
+  // Phone photos are shrunk before upload (~5 MB → ~250 KB each); full-size photos
+  // used to push the request past the server's limit and the post silently failed.
   const onPhotos = async e => {
-    const files = [...e.target.files].slice(0, 6);
-    setPhotos(await Promise.all(files.map(readAsDataURL)));
+    const files = [...e.target.files];
+    e.target.value = "";
+    if (files.length > MAX_PHOTOS) toast(`Max ${MAX_PHOTOS} photos — extra ones skipped`);
+    try { setPhotos(await Promise.all(files.slice(0, MAX_PHOTOS).map(compressImage))); }
+    catch { toast("Couldn't read one of those images — try JPG or PNG"); }
   };
   const onVideo = async e => {
     const f = e.target.files[0];
+    e.target.value = "";
     if (!f) return;
-    if (f.size > 25 * 1024 * 1024) { toast("Video too large for demo (max ~25MB)"); e.target.value = ""; return; }
+    if (f.size > MAX_VIDEO_MB * 1024 * 1024) { toast(`Video too large — max ${MAX_VIDEO_MB} MB. Compress it first, or post without a video.`); return; }
     setVideo(await readAsDataURL(f));
   };
 
@@ -193,25 +200,25 @@ export default function Post() {
               </select>
             </label>
             <label className={lbl}>Expected price (₹)
-              <input className={fieldCls + " mt-1.5"} type="number" min="1" required value={form.price} onChange={e => set("price", e.target.value)} placeholder="e.g. 8500000 (or monthly rent)" />
+              <input className={fieldCls + " mt-1.5"} type="number" min="1000" max="100000000000" required value={form.price} onChange={e => set("price", e.target.value)} placeholder="e.g. 8500000 (or monthly rent)" />
             </label>
             <label className={lbl + " sm:col-span-2"}>Title
-              <input className={fieldCls + " mt-1.5"} required maxLength={80} value={form.title} onChange={e => set("title", e.target.value)} placeholder="e.g. Sunny 2 BHK near Metro" />
+              <input className={fieldCls + " mt-1.5"} required maxLength={120} value={form.title} onChange={e => set("title", e.target.value)} placeholder="e.g. Sunny 2 BHK near Metro" />
             </label>
             <label className={lbl + " sm:col-span-2"}>Description of property
-              <textarea className={fieldCls + " mt-1.5 min-h-[110px] resize-y"} required value={form.desc} onChange={e => set("desc", e.target.value)} placeholder="Layout, amenities, age, facing, nearby landmarks…" />
+              <textarea className={fieldCls + " mt-1.5 min-h-[110px] resize-y"} required maxLength={5000} value={form.desc} onChange={e => set("desc", e.target.value)} placeholder="Layout, amenities, age, facing, nearby landmarks…" />
             </label>
             <label className={lbl}>City
-              <input className={fieldCls + " mt-1.5"} required value={form.city} onChange={e => set("city", e.target.value)} placeholder="e.g. Bengaluru" />
+              <input className={fieldCls + " mt-1.5"} required maxLength={60} value={form.city} onChange={e => set("city", e.target.value)} placeholder="e.g. Bengaluru" />
             </label>
             <label className={lbl}>Area / Locality
-              <input className={fieldCls + " mt-1.5"} required value={form.area} onChange={e => set("area", e.target.value)} placeholder="e.g. Whitefield" />
+              <input className={fieldCls + " mt-1.5"} required maxLength={80} value={form.area} onChange={e => set("area", e.target.value)} placeholder="e.g. Whitefield" />
             </label>
             <label className={lbl}>Pincode
               <input className={fieldCls + " mt-1.5"} required pattern="[0-9]{6}" maxLength={6} value={form.pincode} onChange={e => set("pincode", e.target.value)} placeholder="6-digit pincode" inputMode="numeric" />
             </label>
             <label className={lbl}>Built-up area (sqft)
-              <input className={fieldCls + " mt-1.5"} type="number" min="1" required value={form.sqft} onChange={e => set("sqft", e.target.value)} placeholder="e.g. 1200" />
+              <input className={fieldCls + " mt-1.5"} type="number" min="1" max="10000000" required value={form.sqft} onChange={e => set("sqft", e.target.value)} placeholder="e.g. 1200" />
             </label>
             {hasRooms(form.segment, form.propertyType) && (<>
               <label className={lbl}>Bedrooms
@@ -237,7 +244,7 @@ export default function Post() {
             <div className="sm:col-span-2">
               <span className={lbl}>Add video (optional)</span>
               <label className="mt-1.5 block cursor-pointer rounded-2xl border-2 border-dashed border-slate-200 p-7 text-center text-sm font-semibold text-slate-400 transition-colors hover:border-emerald-400 hover:text-emerald-600">
-                🎬 Click to add a walkthrough video (MP4)
+                🎬 Click to add a walkthrough video (MP4, up to {MAX_VIDEO_MB} MB)
                 <input type="file" accept="video/*" hidden onChange={onVideo} />
               </label>
               {video && <video controls className="mt-3 w-full rounded-xl" src={video} />}

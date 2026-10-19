@@ -7,9 +7,14 @@ import {
   cleanUserText, detectInjection, recordInjection, isChatPaused, PAUSED_MSG,
   OFF_TOPIC_REPLY, PROMPT_RULES, guardReply, takeLlmCall, llmSignal, withTimeout
 } from "./llm-guard";
+import { fitHistory } from "./prompt-context";
+import * as v from "./validate";
 
 const err = (code: number, msg: string) => new HttpException({ error: msg }, code);
 const MAX_MSGS_PER_HOUR = 40;
+// Prompt budgets: replies are 2–3 sentences, lead output is a short JSON object.
+const REPLY_TOKENS = 300, LEAD_TOKENS = 250;
+const HISTORY_CHARS = 4000, TRANSCRIPT_CHARS = 6000, DESCRIPTION_CHARS = 1500;
 // Pinned, not the floating "-latest" alias, so model behaviour can't change under us (LLM03).
 const GEMINI_MODEL = process.env.GEMINI_MODEL || "gemini-2.5-flash";
 
@@ -50,7 +55,7 @@ export class ChatbotController {
         model: GROQ_MODEL,
         messages,
         temperature: json ? 0.1 : 0.3,
-        max_tokens: 500,
+        max_tokens: json ? LEAD_TOKENS : REPLY_TOKENS,
         ...(json ? { response_format: { type: "json_object" } } : {})
       })
     });
@@ -127,7 +132,8 @@ export class ChatbotController {
   // ---------- Endpoints ----------
   @Post("chat")
   async chat(@Req() req: any, @Body() body: any) {
-    const { propertyId, sessionId: providedSession } = body;
+    const propertyId = v.id(body.propertyId, "Listing id");
+    const providedSession = v.optId(body.sessionId, "Chat session");
     const message = cleanUserText(body.message);
     if (!propertyId || !message) throw err(400, "propertyId and message are required");
 
@@ -148,7 +154,7 @@ export class ChatbotController {
     const hit = await detectInjection(message);
     if (hit) {
       await recordInjection(this.db, actor, "chatbot/chat:" + hit, message);
-      return { sessionId: typeof providedSession === "string" ? providedSession : "", reply: OFF_TOPIC_REPLY, flagged: true };
+      return { sessionId: providedSession ?? "", reply: OFF_TOPIC_REPLY, flagged: true };
     }
     let sessionId: string;
     if (providedSession) {
@@ -159,9 +165,12 @@ export class ChatbotController {
         [sessionId, user?.email || null, propertyId]);
     }
     await this.db.q("INSERT INTO chat_messages (session, who, text) VALUES ($1, $2, $3)", [sessionId, "user", message]);
-    // The latest 20 messages, oldest first.
-    const { rows: history } = await this.db.q(
+    // The latest 20 messages, oldest first, trimmed to a character budget and starting
+    // with a user turn (Gemini requires it).
+    const { rows: latest } = await this.db.q(
       `SELECT who, text FROM (SELECT id, who, text FROM chat_messages WHERE session = $1 ORDER BY id DESC LIMIT 20) h ORDER BY id ASC`, [sessionId]);
+    const history = fitHistory(latest, (h: any) => h.text, HISTORY_CHARS);
+    while (history.length && history[0].who !== "user") history.shift();
 
     // Listing fields are seller-written, so they go in as tagged data (LLM01: indirect
     // injection), and a title/description that reads like an attack is left out entirely.
@@ -172,7 +181,7 @@ export class ChatbotController {
       title: tainted ? `${prop.beds ? prop.beds + " BHK " : ""}${prop.property_type || "property"}` : prop.title,
       type: prop.type, category: prop.category, location: `${prop.area}, ${prop.city}`,
       price_inr: prop.price_inr, beds: prop.beds, baths: prop.baths, sqft: prop.sqft,
-      furnishing: prop.furnishing, description: tainted ? "(not available)" : prop.description
+      furnishing: prop.furnishing, description: tainted ? "(not available)" : String(prop.description || "").slice(0, DESCRIPTION_CHARS)
     };
     const systemInstruction = `You are a helpful, professional real estate assistant for a property platform called Nestora.
 You are helping a user looking at a specific property.
@@ -201,7 +210,7 @@ ${PROMPT_RULES}`;
           if (merged.length && merged[merged.length - 1].role === role) merged[merged.length - 1].parts[0].text += "\n" + h.text;
           else merged.push({ role, parts: [{ text: h.text }] });
         }
-        reply = (await this.generateGemini({ model: GEMINI_MODEL, contents: merged, config: { systemInstruction, temperature: 0.3 } })).trim();
+        reply = (await this.generateGemini({ model: GEMINI_MODEL, contents: merged, config: { systemInstruction, temperature: 0.3, maxOutputTokens: REPLY_TOKENS } })).trim();
       } catch (e) { console.warn("Gemini failed, using rules:", (e as any).message); }
     }
 
@@ -221,7 +230,8 @@ ${PROMPT_RULES}`;
     const user = await this.db.userFromRequest(req);
     if (!user?.verified) throw err(401, "Login required");
     const buyerEmail = user.email;
-    const { propertyId, sessionId } = body;
+    const propertyId = v.id(body.propertyId, "Listing id");
+    const sessionId = v.id(body.sessionId, "Chat session");
     if (!propertyId || !sessionId) throw err(400, "propertyId and sessionId are required");
     await this.ownedSession(sessionId, propertyId, buyerEmail);
     // One lead per buyer per listing per day: no spamming sellers or the scorer.
@@ -240,7 +250,9 @@ ${PROMPT_RULES}`;
 
     // A JSON transcript inside tags, so a buyer can't forge "BOT:" lines or talk the
     // scorer into a 10/10 (LLM01), and the output is validated before it's stored (LLM05).
-    const transcript = JSON.stringify(history.map(h => ({ from: h.who === "user" ? "buyer" : "assistant", text: h.text })));
+    // The most recent part of the conversation, within a budget — long chats don't grow the prompt.
+    const transcript = JSON.stringify(fitHistory(history, (h: any) => h.text, TRANSCRIPT_CHARS)
+      .map(h => ({ from: h.who === "user" ? "buyer" : "assistant", text: h.text })));
     const prompt = `Review this chat between a buyer and a real estate assistant about a property.
 <listing_data>${JSON.stringify({ title: prop.title, location: `${prop.area}, ${prop.city}`, price_inr: prop.price_inr })}</listing_data>
 <transcript>${transcript}</transcript>
@@ -264,7 +276,7 @@ Respond ONLY with valid JSON: {"summary": "2-3 sentence summary of the buyer's i
     }
     if (!result && useLlm && this.ai) {
       try {
-        result = parseLead(await this.generateGemini({ model: GEMINI_MODEL, contents: prompt, config: { responseMimeType: "application/json", temperature: 0.1 } }));
+        result = parseLead(await this.generateGemini({ model: GEMINI_MODEL, contents: prompt, config: { responseMimeType: "application/json", temperature: 0.1, maxOutputTokens: LEAD_TOKENS } }));
       } catch (e) { console.warn("Gemini lead failed:", (e as any).message); }
     }
     if (!result) result = this.ruleLead(history, prop);

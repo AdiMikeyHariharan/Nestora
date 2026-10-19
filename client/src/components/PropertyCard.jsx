@@ -7,6 +7,11 @@ import { BedIcon, BathIcon, RulerIcon, PinIcon, HeartIcon } from "./icons.jsx";
 export default function PropertyCard({ p, delay = 0 }) {
   const { shortlist, toggleShortlist, currency } = useApp();
   const saved = shortlist.includes(p.id);
+  // "Price dropped" for 30 days after a cut; otherwise "New" for a week after posting.
+  const daysSince = d => d ? (Date.now() - new Date(d)) / 86400000 : Infinity;
+  const drop = p.prevPriceINR > p.priceINR && daysSince(p.priceChangedAt) <= 30
+    ? Math.round((1 - p.priceINR / p.prevPriceINR) * 100) || 1 : 0;
+  const isNew = daysSince(p.createdAt) <= 7;
   return (
     <motion.article
       initial={{ opacity: 0, y: 22 }}
@@ -27,6 +32,11 @@ export default function PropertyCard({ p, delay = 0 }) {
         </span>
         {p.type === "rent" && (
           <span className="absolute right-14 top-3 rounded-lg bg-slate-800/90 px-2.5 py-1 text-xs font-bold text-white shadow">For Rent</span>
+        )}
+        {(drop || isNew) && (
+          <span className={`absolute bottom-3 right-3 rounded-lg px-2.5 py-1 text-xs font-bold text-white shadow ${drop ? "bg-rose-600" : "bg-sky-600"}`}>
+            {drop ? `Price dropped ${drop}%` : "New"}
+          </span>
         )}
         {p.distance_km != null && (
           <span className="absolute bottom-3 left-3 inline-flex items-center gap-1 rounded-lg bg-slate-900/85 px-2.5 py-1 text-xs font-bold text-white backdrop-blur">
