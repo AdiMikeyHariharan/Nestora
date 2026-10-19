@@ -1,5 +1,5 @@
 import { Controller, Delete, Get, Param, Patch, Post, Query, Body, Req, Res, HttpException } from "@nestjs/common";
-import { DbService } from "./db.service";
+import { DbService, LIST_COLUMNS } from "./db.service";
 import { GeoService } from "./geo.service";
 import * as v from "./validate";
 import { cleanUserText, detectInjection, recordInjection } from "./llm-guard";
@@ -120,10 +120,11 @@ export class PropertiesController {
       const [la, ln] = String(p.near).split(",");
       near = [v.lat(la), v.lng(ln)];
     }
-    const { rows } = await this.db.q(
-      `SELECT * FROM properties ${where.length ? "WHERE " + where.join(" AND ") : ""} ORDER BY created_at DESC`, params);
-    // Admins get full rows: their listing editors work from this list.
+    // Admins get full rows: their listing editors work from this list. Everyone else
+    // gets card columns only, with covers as short cacheable URLs (see LIST_COLUMNS).
     const isAdmin = (await this.db.userFromRequest(req))?.role === "admin";
+    const { rows } = await this.db.q(
+      `SELECT ${isAdmin ? "*" : LIST_COLUMNS} FROM properties ${where.length ? "WHERE " + where.join(" AND ") : ""} ORDER BY created_at DESC`, params);
     let list = rows.map(r => isAdmin ? this.db.toApiProp(r) : teaser(this.db.toApiProp(r)));
 
     // near → haversine filter + distance sort
@@ -141,9 +142,28 @@ export class PropertiesController {
   async recommended(@Query("lat") latStr: string, @Query("lng") lngStr: string) {
     const lat = v.lat(latStr), lng = v.lng(lngStr);
 
-    const { rows } = await this.db.q("SELECT * FROM properties ORDER BY created_at DESC");
+    const { rows } = await this.db.q(`SELECT ${LIST_COLUMNS} FROM properties ORDER BY created_at DESC`);
     const properties = rows.map(r => teaser(this.db.toApiProp(r)));
     return this.geo.clusterAndRecommend(properties, lat, lng);
+  }
+
+  // A listing's uploaded cover photo as an image file. The URL carries a content hash
+  // (?v=…), so the response is cached for a year by browsers and Vercel's CDN; a new
+  // photo gets a new URL. Link covers redirect; anything that isn't an image gets a placeholder.
+  @Get("properties/:id/cover")
+  async cover(@Param("id") id: string, @Res() res: any) {
+    v.id(id, "Listing id");
+    const { rows: [row] } = await this.db.q("SELECT img FROM properties WHERE id = $1", [id]);
+    if (!row) throw err(404, "Not found");
+    const m = /^data:(image\/(?!svg)[\w.+-]+);base64,(.*)$/is.exec(row.img || "");
+    if (!m) return res.redirect(302, /^https:\/\//i.test(row.img || "") ? row.img : `https://picsum.photos/seed/${id}/800/500`);
+    const body = Buffer.from(m[2], "base64");
+    res.set({
+      "Content-Type": m[1].toLowerCase(),
+      "Cache-Control": "public, max-age=31536000, immutable",
+      "CDN-Cache-Control": "public, max-age=31536000, immutable"
+    });
+    res.send(body);
   }
 
   @Get("properties/:id")

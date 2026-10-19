@@ -13,7 +13,7 @@ import * as v from "./validate";
 const HISTORY_CHARS = 2500;
 const MAX_ANSWER_TOKENS = 200;
 import * as crypto from "node:crypto";
-import { DbService } from "./db.service";
+import { DbService, coverSql } from "./db.service";
 import { CalendarService } from "./calendar.service";
 
 const err = (code: number, msg: string) => new HttpException({ error: msg }, code);
@@ -113,7 +113,7 @@ export class AccountController {
   async bookings(@Req() req: any) {
     const user = await this.requireUser(req);
     const { rows } = await this.db.q(`
-      SELECT b.*, p.title, p.area, p.city, p.img FROM bookings b
+      SELECT b.*, p.title, p.area, p.city, ${coverSql("p")} AS img FROM bookings b
       LEFT JOIN properties p ON p.id = b.property_id
       WHERE b.email = $1 ORDER BY b.created_at DESC`, [user.email]);
     return { bookings: rows };

@@ -7,6 +7,22 @@ import * as crypto from "node:crypto";
 import { Resend } from "resend";
 
 const SESSION_DAYS = 30;
+// The deployed site runs on https; local dev uses http://localhost.
+const IS_LIVE = /^https:/i.test(process.env.PUBLIC_URL || "");
+
+// Uploaded covers are base64 inside the row, so lists return a short URL instead:
+// /api/properties/:id/cover?v=<content hash>. The hash changes when the photo does,
+// which lets browsers and Vercel's CDN cache each version for a year.
+export const coverSql = (alias = "") => {
+  const a = alias ? alias + "." : "";
+  return `CASE WHEN ${a}img LIKE 'data:%' THEN '/api/properties/' || ${a}id || '/cover?v=' || left(md5(${a}img), 12) ELSE ${a}img END`;
+};
+// Card-level columns for list responses — never the photo/video/description blobs.
+export const LIST_COLUMNS = `id, title, type, category, city, area, pincode, price_inr, beds, baths, sqft, posted_by, role,
+  lat, lng, created_at, furnishing, segment, property_type, prev_price_inr, price_changed_at, ${coverSql()} AS img`;
+// What counts as an image / video in stored media (mirrors isImage/isVideo in properties.controller).
+const IMAGE_RE = "^(https://|data:image/(?!svg)[a-z0-9.+-]+;base64,)";
+const VIDEO_RE = "^(https://|data:video/[a-z0-9.+-]+;base64,)";
 // Prefix of the short-lived token handed out mid Google sign-up; never a login session.
 export const GOOGLE_TEMP_PREFIX = "google-temp-";
 const escHtml = (s: string) => s.replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c] as string));
@@ -124,8 +140,33 @@ export class DbService implements OnModuleInit {
       END $$;
     `);
     await this.seed();
+    await this.repairMedia();
     await this.backfillPropertyTypes();
     await this.ensureAdmin();
+  }
+
+  // Media saved before upload validation existed (e.g. a PDF stored as a cover photo)
+  // is dropped: photos keep only real images, a bad video is cleared, and a missing
+  // cover falls back to the first remaining photo or a placeholder. Idempotent.
+  private async repairMedia() {
+    // photos should always be a JSON array; anything else is treated as empty.
+    const arr = `(CASE WHEN jsonb_typeof(photos) = 'array' THEN photos ELSE '[]'::jsonb END)`;
+    try {
+      const { rowCount } = await this.q(`
+        UPDATE properties SET
+          photos = (SELECT coalesce(jsonb_agg(e), '[]'::jsonb) FROM jsonb_array_elements(${arr}) e WHERE e #>> '{}' ~* $1),
+          video = CASE WHEN video ~* $2 THEN video END,
+          img = CASE WHEN img ~* $1 THEN img END
+        WHERE coalesce(img, '') !~* $1
+           OR (video IS NOT NULL AND video !~* $2)
+           OR jsonb_typeof(photos) IS DISTINCT FROM 'array'
+           OR EXISTS (SELECT 1 FROM jsonb_array_elements(${arr}) e WHERE coalesce(e #>> '{}', '') !~* $1)`, [IMAGE_RE, VIDEO_RE]);
+      await this.q(`UPDATE properties SET img = coalesce(photos->>0, 'https://picsum.photos/seed/' || id || '/800/500') WHERE img IS NULL`);
+      if (rowCount) console.log(`Repaired media on ${rowCount} listing(s): non-image photos / non-video files removed`);
+    } catch (e) {
+      // A repair must never stop the server from starting.
+      console.error("Media repair skipped:", (e as any).message);
+    }
   }
 
   // The admin account comes from env (ADMIN_EMAIL / ADMIN_PASSWORD) so the password
@@ -281,19 +322,23 @@ export class DbService implements OnModuleInit {
   // server still boots (local dev / unconfigured envs).
   resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null;
 
-  async sendEmail(to: string, subject: string, text: string) {
-    // Bodies carry OTP codes, so they're only printed in demo mode (no Resend key);
-    // with real email they must never reach the server logs.
+  // Returns whether the email was handed to the provider. Bodies carry OTP codes, so
+  // they're printed only in local demo mode — never on the live (https) site.
+  async sendEmail(to: string, subject: string, text: string): Promise<boolean> {
+    const masked = to.replace(/^(.).*(@.*)$/, "$1***$2");
     if (!this.resend) {
+      if (IS_LIVE) { console.error(`Email not sent (RESEND_API_KEY is not set): "${subject}" to ${masked}`); return false; }
       console.log(`\n=== EMAIL (demo mode) to ${to} ===\n${subject}\n${text}\n====================\n`);
-      return;
+      return true;
     }
 
     try {
-      await this.resend.emails.send({
-        from: "Nestora <noreply@nestora.properties>",
+      // Resend reports most failures (unverified domain, bad key, rate limit) as
+      // { error } rather than throwing, so check it explicitly.
+      const { error } = await this.resend.emails.send({
+        from: process.env.EMAIL_FROM || "Nestora <noreply@nestora.properties>",
         to: to,
-        replyTo: "support@nestora.properties",
+        replyTo: process.env.EMAIL_REPLY_TO || "support@nestora.properties",
         subject: subject,
         html: `<div style="font-family: sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; line-height: 1.6; border: 1px solid #e2e8f0; border-radius: 12px;">
           <div style="background-color: #059669; padding: 15px; text-align: center; border-radius: 8px 8px 0 0;">
@@ -307,8 +352,11 @@ export class DbService implements OnModuleInit {
           </div>
         </div>`
       });
+      if (error) { console.error(`Email to ${masked} failed — ${error.name}: ${error.message}`); return false; }
+      return true;
     } catch (err) {
-      console.error("Failed to send email via Resend SDK:", err);
+      console.error(`Email to ${masked} failed:`, (err as any)?.message || err);
+      return false;
     }
   }
 
@@ -320,7 +368,12 @@ export class DbService implements OnModuleInit {
     const otp = "" + crypto.randomInt(100000, 1000000);
     await this.q("UPDATE users SET otp = $1, otp_expires = $2, otp_attempts = 0 WHERE email = $3",
       [otp, Date.now() + 10 * 60 * 1000, email]);
-    this.sendEmail(email, "Your Nestora verification code", `Your OTP is ${otp}. It expires in 10 minutes.`);
+    // If the code can't be delivered, say so now (instead of leaving the user waiting
+    // for an email that never comes) and clear it so the resend cooldown doesn't apply.
+    if (!await this.sendEmail(email, "Your Nestora verification code", `Your OTP is ${otp}. It expires in 10 minutes.`)) {
+      await this.q("UPDATE users SET otp = NULL, otp_expires = NULL WHERE email = $1", [email]);
+      throw new HttpException({ error: "We couldn't send your verification code right now. Please continue with Google sign-in, or try again later." }, 503);
+    }
     return otp;
   }
 
