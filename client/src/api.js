@@ -61,6 +61,6 @@ export const waLink = text => "https://wa.me/" + NESTORA.whatsapp + "?text=" + e
 export function enquireEmail(p) {
   if (!p) return;
   const subject = `Interested: ${p.title} (${p.id})`;
-  const body = `Hi Nestora team,\n\nI'm interested in this property:\n\n${p.title}\n${p.area}, ${p.city} - ${p.pincode}\nPrice: ${fmtPrice(p.priceINR, p.type === "rent")}\n\nPlease share more details / schedule a visit.\n\nThanks`;
+  const body = `Hi Nestora team,\n\nI'm interested in this property:\n\n${p.title}\n${p.area ? `${p.area}, ${p.city} - ${p.pincode}` : p.city}\nPrice: ${fmtPrice(p.priceINR, p.type === "rent")}\n\nPlease share more details / schedule a visit.\n\nThanks`;
   window.location.href = `mailto:${NESTORA.email}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
 }

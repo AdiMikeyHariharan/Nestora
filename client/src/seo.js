@@ -57,7 +57,7 @@ export function propertyJsonLd(p) {
     "@type": "RealEstateListing",
     name: p.title,
     url: `${SITE}/property/${p.id}`,
-    description: p.desc || p.descExcerpt,
+    description: p.desc,
     ...(p.img ? { image: p.img } : {}),
     ...(p.createdAt ? { datePosted: p.createdAt } : {}),
     offers: {

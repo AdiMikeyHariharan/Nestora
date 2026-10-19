@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Post, Query, Req, HttpException } from "@nestjs/common";
+import { Body, Controller, Get, Post, Query, Req, Res, HttpException } from "@nestjs/common";
 import { DbService } from "./db.service";
 import * as v from "./validate";
 
@@ -30,6 +30,36 @@ export class MetricsController {
     await this.db.q("INSERT INTO page_views (visitor_id, email, path, property_id) VALUES ($1, $2, $3, $4)",
       [visitor, user?.email || null, path, propertyId]);
     return { ok: true };
+  }
+
+  // Public homepage figures, straight from the database. Same for every visitor, so
+  // browsers and Vercel's CDN may cache them for 5 minutes.
+  @Get("stats")
+  async stats(@Res({ passthrough: true }) res: any) {
+    const { rows: [s] } = await this.db.q(`SELECT
+        count(*)::int AS listings,
+        count(DISTINCT lower(trim(city)))::int AS cities,
+        count(DISTINCT lower(trim(city)) || '|' || lower(trim(area)))::int AS localities,
+        (SELECT count(*)::int FROM bookings) AS visits
+      FROM properties`);
+    res.set({ "Cache-Control": "public, max-age=300", "CDN-Cache-Control": "public, max-age=300" });
+    return s;
+  }
+
+  // Admin: people who signed up in the last N days (default 7).
+  @Get("admin/users")
+  async users(@Query("days") daysStr: string, @Req() req: any) {
+    const user = await this.db.userFromRequest(req);
+    if (!user) throw err(401, "Login required");
+    if (user.role !== "admin") throw err(403, "Admins only");
+    const days = daysStr ? v.num(daysStr, "Days", { min: 1, max: 3650, integer: true }) : 7;
+    const { rows } = await this.db.q(`
+      SELECT name, email, phone, role, verified, created_at,
+        CASE WHEN password IS NULL THEN 'Google' ELSE 'Email' END AS method
+      FROM users
+      WHERE created_at > now() - ($1::int * interval '1 day') AND role <> 'admin'
+      ORDER BY created_at DESC LIMIT 1000`, [days]);
+    return { days, users: rows };
   }
 
   @Get("admin/metrics")

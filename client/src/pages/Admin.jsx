@@ -5,6 +5,7 @@ import { useApp } from "../store.jsx";
 import { usePageMeta } from "../seo.js";
 import { PROPERTY_TYPES } from "../lib/propertyTypes.js";
 import AdminMetrics from "../components/AdminMetrics.jsx";
+import AdminUsers from "../components/AdminUsers.jsx";
 import VideoPlayer from "../components/VideoPlayer.jsx";
 import { youTubeId, youTubeWatchUrl } from "../lib/youtube.js";
 import { compressImage, readAsDataURL, MAX_VIDEO_MB } from "../lib/images.js";
@@ -280,12 +281,13 @@ export default function Admin() {
         <button
           onClick={() => api.download("/admin/interest.xlsx", `nestora-interest-${new Date().toISOString().slice(0, 10)}.xlsx`).catch(e => toast(e.message))}
           className="rounded-xl border border-slate-200 bg-white px-5 py-2.5 text-sm font-bold text-slate-700 hover:border-emerald-400 hover:text-emerald-700"
-        >Download interest list (Excel)</button>
+        >Download Excel (interest + users)</button>
         <Link to="/post" className="rounded-xl bg-gradient-to-r from-emerald-600 to-teal-500 px-5 py-2.5 text-sm font-bold text-white shadow-lg shadow-emerald-600/25 hover:brightness-110">+ Add new property</Link>
         </div>
       </div>
 
       <AdminMetrics />
+      <AdminUsers />
 
       <h2 className="mt-10 text-lg font-extrabold tracking-tight">Listings</h2>
       <input

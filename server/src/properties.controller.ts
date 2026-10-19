@@ -27,14 +27,21 @@ function normalizeVideo(v: any): string | null {
 // Full listing details (description, gallery, video) are for signed-up users only;
 // everyone else — and every list response — gets the card-level teaser.
 const teaser = (p: any) => { const { desc, photos, video, ...rest } = p; return rest; };
-// What a signed-out visitor (and Google) sees on a listing page: the teaser plus a few
-// photos and the start of the description, so the page is worth indexing. The full
-// description, video, booking and chat stay members-only.
-const preview = (p: any) => {
-  const d = String(p.desc || "");
-  const cut = d.length > 280 ? d.slice(0, 280).replace(/\s+\S*$/, "") + "…" : d;
-  return { ...teaser(p), photos: (p.photos || []).slice(0, 4), descExcerpt: cut };
+// Location beyond the city — locality, pincode, map position — is for signed-up
+// (verified) users only, everywhere: lists, previews, search filters and the AI.
+export const seesLocation = (user: any) => !!user?.verified;
+// Seller-written titles often name the locality ("3 BHK in Peelamedu"), so for signed-out
+// visitors that name is swapped for the city. (Project/building names can't be detected.)
+export const hideAreaInTitle = (title: string, area: string, city: string) =>
+  area && area.toLowerCase() !== String(city).toLowerCase() && area.length > 2
+    ? String(title).replace(new RegExp(area.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "gi"), city) : title;
+export const cityOnly = (p: any) => {
+  const { area, pincode, lat, lng, distance_km, ...rest } = p;
+  return { ...rest, title: hideAreaInTitle(rest.title, area, rest.city) };
 };
+// What a signed-out visitor (and Google) sees on a listing page: card details, the
+// city and a few photos. Description, address, map, video, booking and chat need sign-up.
+const preview = (p: any) => ({ ...cityOnly(teaser(p)), photos: (p.photos || []).slice(0, 4) });
 
 @Controller()
 export class PropertiesController {
@@ -65,22 +72,21 @@ export class PropertiesController {
       `    <changefreq>${freq}</changefreq>\n    <priority>${priority}</priority>\n  </url>`;
 
     const { rows } = await this.db.q(
-      "SELECT id, city, area, type, created_at FROM properties ORDER BY created_at DESC");
+      "SELECT id, city, type, created_at FROM properties ORDER BY created_at DESC");
 
     const parts = [
       url(`${SITE}/`, "1.0", "daily"),
       url(`${SITE}/listings`, "0.9", "hourly"),
       url(`${SITE}/post`, "0.6", "weekly")
     ];
-    // Locality + city search pages — these are what local queries land on.
+    // City search pages — what local queries land on. Locality searches are for
+    // signed-up users only, so they aren't listed.
     const seen = new Set<string>();
     for (const r of rows) {
-      for (const term of [r.city, r.area]) {
-        const t = (term || "").trim();
-        if (!t || seen.has(t.toLowerCase())) continue;
-        seen.add(t.toLowerCase());
-        parts.push(url(`${SITE}/listings?q=${encodeURIComponent(t)}`, "0.8", "daily"));
-      }
+      const t = (r.city || "").trim();
+      if (!t || seen.has(t.toLowerCase())) continue;
+      seen.add(t.toLowerCase());
+      parts.push(url(`${SITE}/listings?q=${encodeURIComponent(t)}`, "0.8", "daily"));
     }
     for (const r of rows) parts.push(url(`${SITE}/property/${r.id}`, "0.7", "weekly", r.created_at));
 
@@ -99,11 +105,15 @@ export class PropertiesController {
   async list(@Query() p: Record<string, string>, @Req() req: any) {
     const where: string[] = [], params: any[] = [];
     const add = (sql: string, val: any) => { params.push(val); where.push(sql.replace("?", "$" + params.length)); };
+    const viewer = await this.db.userFromRequest(req);
+    const located = seesLocation(viewer);
     // Every filter is checked before it reaches the query; text wildcards match literally.
-    if (p.q) add("(city || ' ' || area) ILIKE ?", "%" + v.likeEscape(v.text(p.q, "Search", { max: 80 })) + "%");
+    // Signed-out visitors search by city only — matching on locality would reveal where
+    // listings are — and pincode / landmark filters are ignored for them.
+    if (p.q) add(located ? "(city || ' ' || area) ILIKE ?" : "city ILIKE ?", "%" + v.likeEscape(v.text(p.q, "Search", { max: 80 })) + "%");
     if (p.pincode) {
       if (!/^\d{1,6}$/.test(p.pincode)) throw err(400, "Pincode must be digits");
-      add("pincode LIKE ?", p.pincode + "%");
+      if (located) add("pincode LIKE ?", p.pincode + "%");
     }
     if (p.type) add("type = ?", v.oneOf(p.type, "Listing for", v.LISTING_TYPES));
     if (p.category) add("category = ?", v.oneOf(p.category, "Resale or new", v.CATEGORIES));
@@ -118,14 +128,16 @@ export class PropertiesController {
     const radius = p.radius ? v.num(p.radius, "Radius", { min: 0.1, max: 500 }) : 10;
     if (p.near) {
       const [la, ln] = String(p.near).split(",");
-      near = [v.lat(la), v.lng(ln)];
+      const point: [number, number] = [v.lat(la), v.lng(ln)];
+      if (located) near = point;
     }
     // Admins get full rows: their listing editors work from this list. Everyone else
     // gets card columns only, with covers as short cacheable URLs (see LIST_COLUMNS).
-    const isAdmin = (await this.db.userFromRequest(req))?.role === "admin";
+    const isAdmin = viewer?.role === "admin";
     const { rows } = await this.db.q(
       `SELECT ${isAdmin ? "*" : LIST_COLUMNS} FROM properties ${where.length ? "WHERE " + where.join(" AND ") : ""} ORDER BY created_at DESC`, params);
     let list = rows.map(r => isAdmin ? this.db.toApiProp(r) : teaser(this.db.toApiProp(r)));
+    if (!located) return { properties: list.map(cityOnly), locationLocked: true };
 
     // near → haversine filter + distance sort
     if (near) {
@@ -139,7 +151,9 @@ export class PropertiesController {
   }
 
   @Get("properties/recommended")
-  async recommended(@Query("lat") latStr: string, @Query("lng") lngStr: string) {
+  async recommended(@Query("lat") latStr: string, @Query("lng") lngStr: string, @Req() req: any) {
+    // Nearby clusters reveal positions and distances — signed-up users only.
+    if (!seesLocation(await this.db.userFromRequest(req))) throw err(401, "Sign up to see homes near you");
     const lat = v.lat(latStr), lng = v.lng(lngStr);
 
     const { rows } = await this.db.q(`SELECT ${LIST_COLUMNS} FROM properties ORDER BY created_at DESC`);

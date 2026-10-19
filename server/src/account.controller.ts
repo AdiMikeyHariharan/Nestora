@@ -6,6 +6,7 @@ import {
 } from "./llm-guard";
 import { relevantListings, inventoryTable, fitHistory } from "./prompt-context";
 import * as v from "./validate";
+import { seesLocation, hideAreaInTitle } from "./properties.controller";
 
 // Prompt budgets for the search assistant: ~2.5k chars of history, and answers are a
 // PROPS line plus 1–3 sentences (cards carry the details). Output tokens count against
@@ -179,9 +180,21 @@ export class AccountController {
 
     // Only the listings that fit what the visitor asked for (their last few messages),
     // as a compact table — not the whole catalogue as JSON (see prompt-context).
-    const { rows: all } = await this.db.q(
+    // Signed-out visitors get no localities at all: they're neither in the prompt nor used
+    // for ranking, so the answer (or which listings it picks) can't reveal where homes are.
+    const located = seesLocation(user);
+    const { rows: fetched } = await this.db.q(
       "SELECT id,title,type,city,area,price_inr,beds,sqft,property_type,furnishing FROM properties ORDER BY created_at DESC LIMIT 500");
+    const all = located ? fetched : fetched.map((r: any) => ({ ...r, title: hideAreaInTitle(r.title, r.area, r.city), area: null }));
     const asked = recent.filter(m => m.role === "user").slice(-3).map(m => m.content).join(" ");
+    // A signed-out visitor naming a locality gets a fixed answer, not the model — it can
+    // neither confirm nor deny what's there (models don't reliably follow that rule).
+    const latestAsk = lastText.toLowerCase();
+    if (!located && fetched.some((r: any) => r.area && r.area.toLowerCase() !== String(r.city).toLowerCase()
+        && r.area.length > 2 && latestAsk.includes(r.area.toLowerCase()))) {
+      const reply = "Searching by locality is for members — sign up free (Google or email) to see exactly where each home is. Meanwhile, tell me the city, budget, size or type you want and I'll suggest matches.";
+      return { reply, sig: signReply(reply), propertyIds: [] };
+    }
     const rows = relevantListings(all, asked);
     const system = `You are Nestora's real-estate assistant (India). Be concise, warm and factual, no emoji.
 Answer only from these ${rows.length} listings, the best matches for this conversation out of ${all.length}. If none fit, say so and suggest browsing all listings.
@@ -189,7 +202,7 @@ Answer only from these ${rows.length} listings, the best matches for this conver
 ${inventoryTable(rows)}
 </listing_data>
 Reply format: when recommending homes, the FIRST line is PROPS:<up to 4 comma-separated ids>; the app shows each as a card with its details. Then 1-3 short plain sentences (no lists, no markdown, don't repeat card details). To book a visit, tell them to open the property page and select "Schedule a visit".
-${PROMPT_RULES}`;
+${located ? "" : "This visitor isn't signed in, so localities are hidden from them (and from you). If they ask where a home is, or search by locality, pincode or landmark: never confirm or deny whether any home is in or near a particular place — give the city only, still suggest matching homes by type, budget or size, and say a free sign-up shows exact locations.\n"}${PROMPT_RULES}`;
 
     let text = "";
     try {
@@ -347,6 +360,28 @@ ${PROMPT_RULES}`;
     });
     ws.getRow(1).font = { bold: true };
     ws.autoFilter = { from: "A1", to: "N1" };
+
+    // Second sheet: everyone who has signed up (admins excluded), newest first.
+    const { rows: people } = await this.db.q(`SELECT name, email, phone, role, verified, created_at,
+        CASE WHEN password IS NULL THEN 'Google' ELSE 'Email' END AS method
+      FROM users WHERE role <> 'admin' ORDER BY created_at DESC`);
+    const us = wb.addWorksheet("Users", { views: [{ state: "frozen", ySplit: 1 }] });
+    us.columns = [
+      { header: "Signed up", key: "date", width: 18, style: { numFmt: "dd-mmm-yyyy hh:mm" } },
+      { header: "Name", key: "name", width: 24 },
+      { header: "Email", key: "email", width: 32 },
+      { header: "Phone", key: "phone", width: 16 },
+      { header: "Role", key: "role", width: 14 },
+      { header: "Sign-in", key: "method", width: 10 },
+      { header: "Verified", key: "verified", width: 10 }
+    ];
+    for (const u of people) us.addRow({
+      date: u.created_at ? new Date(new Date(u.created_at).getTime() + IST_MS) : null,
+      name: cell(u.name || ""), email: cell(u.email), phone: cell(u.phone || ""),
+      role: u.role === "agent" ? "Agent" : "Buyer/Seller", method: u.method, verified: u.verified ? "Yes" : "No"
+    });
+    us.getRow(1).font = { bold: true };
+    us.autoFilter = { from: "A1", to: "G1" };
 
     res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
     res.setHeader("Content-Disposition", `attachment; filename="nestora-interest-${new Date().toISOString().slice(0, 10)}.xlsx"`);

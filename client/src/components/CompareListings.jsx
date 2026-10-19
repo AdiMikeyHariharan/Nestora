@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Link } from "react-router-dom";
 import { fmtPrice } from "../api.js";
 import { useApp } from "../store.jsx";
+import { placeOf } from "../lib/location.js";
 
 const MAX = 3;
 const perSqft = p => p.type !== "rent" && p.sqft > 0 ? Math.round(p.priceINR / p.sqft) : null;
@@ -22,7 +23,7 @@ export default function CompareListings({ listings }) {
     ["Built-up area", p => `${p.sqft.toLocaleString("en-IN")} sqft`, best(p => p.sqft, Math.max), p => p.sqft],
     ["Bedrooms", p => p.beds ? `${p.beds} BHK` : "—"],
     ["Bathrooms", p => p.baths || "—"],
-    ["Locality", p => `${p.area}, ${p.city}`],
+    ["Locality", p => placeOf(p)],
     ["Type", p => p.propertyType || "—"],
     ["Furnishing", p => ({ semi: "Semi-furnished", furnished: "Furnished", unfurnished: "Unfurnished" })[p.furnishing] || "—"],
     ["Status", p => p.category === "new" ? "New launch" : "Ready to move"],

@@ -7,6 +7,9 @@ import GeoSearch from "../components/GeoSearch.jsx";
 import { SkeletonGrid } from "../components/Skeleton.jsx";
 import { usePageMeta } from "../seo.js";
 import { PROPERTY_TYPES } from "../lib/propertyTypes.js";
+import { useApp } from "../store.jsx";
+import { canSeeLocation } from "../lib/location.js";
+import LocationLock from "../components/LocationLock.jsx";
 
 const fieldCls = "w-full rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 text-sm outline-none focus:ring-2 focus:ring-emerald-500";
 const lbl = "block text-[11px] font-bold uppercase tracking-wide text-slate-500";
@@ -126,6 +129,7 @@ function BudgetHistogramSlider({ min, max, counts, valueMin, valueMax, onChange,
 
 export default function Listings() {
   const [params, setParams] = useSearchParams();
+  const located = canSeeLocation(useApp().user); // locality / landmark / map are members-only
   // Search-aware title, e.g. "Property for sale in Coimbatore" — targets local queries.
   const qLabel = params.get("q") || params.get("pincode");
   const dealLabel = params.get("type") === "rent" ? "Property for rent"
@@ -310,10 +314,14 @@ export default function Listings() {
           <button type="button" onClick={resetFilters} className="text-xs font-bold text-emerald-700 hover:text-emerald-900">Reset</button>
         </div>
 
-        <label className={lbl}>City / Area
-          <input className={fieldCls + " mt-1.5"} value={form.q} onChange={e => setForm({ ...form, q: e.target.value })} placeholder="City or area" />
+        <label className={lbl}>{located ? "City / Area" : "City"}
+          <input className={fieldCls + " mt-1.5"} value={form.q} onChange={e => setForm({ ...form, q: e.target.value })} placeholder={located ? "City or area" : "e.g. Coimbatore"} />
         </label>
 
+        {/* Landmark / locality / my-location search reveals where homes are — members only. */}
+        {!located ? (
+          <LocationLock className="mt-4" text="Sign up free to search by locality, landmark or your location." />
+        ) : <>
         <label className={lbl + " mt-4 block"}>📍 Near landmark
           <div className="mt-1.5"><GeoSearch onSelect={onLandmark} /></div>
         </label>
@@ -355,6 +363,7 @@ export default function Listings() {
             className="mt-3 inline-flex w-full items-center justify-center gap-1.5 rounded-full border border-emerald-200 bg-emerald-50 px-4 py-1.5 text-xs font-bold text-emerald-700 hover:bg-emerald-100"
           >📍 Use my location</button>
         )}
+        </>}
 
         <label className={lbl + " mt-4 block"}>Buy / Rent
           <div className="mt-1.5 flex gap-1.5">
@@ -460,7 +469,7 @@ export default function Listings() {
           <div className="flex flex-wrap items-center gap-3">
             <h1 className="text-xl font-extrabold text-slate-800">{title}</h1>
             <p className="text-sm font-semibold text-slate-500">
-              {loading ? "Searching…" : `${list.length} propert${list.length === 1 ? "y" : "ies"} found${near ? " · sorted by distance" : ""}`}
+              {loading ? "Searching…" : `${list.length} propert${list.length === 1 ? "y" : "ies"} found${near && located ? " · sorted by distance" : ""}`}
             </p>
             {params.toString() && (
               <button onClick={saveSearch} className="rounded-full border border-emerald-300 bg-emerald-50 px-3.5 py-1 text-xs font-bold text-emerald-700 hover:bg-emerald-100">
@@ -520,7 +529,9 @@ export default function Listings() {
           </div>
           {showMap && (
             <div className="lg:sticky lg:top-4" style={{ minHeight: 420 }}>
-              <MapPanel properties={sorted} landmark={landmark} radiusKm={near ? radius : null} height="calc(100vh - 120px)" />
+              {located
+                ? <MapPanel properties={sorted} landmark={landmark} radiusKm={near ? radius : null} height="calc(100vh - 120px)" />
+                : <LocationLock text="The map shows exactly where each home is — sign up free to explore it." />}
             </div>
           )}
         </div>

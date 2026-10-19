@@ -5,6 +5,7 @@ import { api, fmtPrice, waLink } from "../api.js";
 import { useApp } from "../store.jsx";
 import { parseQuery, allProperties as allProps } from "../lib/nlsearch.js";
 import { ChatIcon } from "./icons.jsx";
+import { placeOf, canSeeLocation } from "../lib/location.js";
 
 // Conversations are persisted server-side (chat_messages table) per browser session.
 function sessionId() {
@@ -93,8 +94,14 @@ export default function ChatWidget() {
     }
 
     const all = await allProps().catch(() => []);
-    const places = [...new Set(all.flatMap(p => [p.city, p.area]))];
+    const places = [...new Set(all.flatMap(p => [p.city, p.area]).filter(Boolean))];
     const q = parseQuery(t, places);
+    // Landmark and pincode searches reveal locations — members only.
+    if ((q.near || q.pincode) && !canSeeLocation(user)) {
+      push({ who: "bot", text: "Searching by landmark, locality or pincode is for members. Sign up free (Google or email) and I'll find homes near any place for you." });
+      push({ who: "bot", link: { to: "/login?mode=signup", label: "Sign up free →" } });
+      return;
+    }
     const hasIntent = q.near || q.place || q.beds || q.budget || q.type || q.category || q.pincode ||
       /flat|apartment|villa|house|home|property|bhk|studio|penthouse/.test(t);
     if (!hasIntent) {
@@ -148,7 +155,7 @@ export default function ChatWidget() {
 
     // Standard filtered search
     let list = all;
-    if (q.place) list = list.filter(p => (p.city + " " + p.area).toLowerCase().includes(q.place.toLowerCase()));
+    if (q.place) list = list.filter(p => placeOf(p).toLowerCase().includes(q.place.toLowerCase()));
     if (q.pincode) list = list.filter(p => p.pincode === q.pincode);
     if (q.beds) list = list.filter(p => p.beds === q.beds);
     if (q.type) list = list.filter(p => p.type === q.type);
@@ -228,7 +235,7 @@ export default function ChatWidget() {
                       <div className="min-w-0">
                         <b className="block text-sm text-emerald-700">{fmtPrice(p.priceINR, p.type === "rent", currency)}</b>
                         <span className="block truncate text-xs font-semibold">{p.title}</span>
-                        <small className="block truncate text-[11px] text-slate-400">📍 {p.area}, {p.city}{p.distance_km != null ? ` · ${p.distance_km} km` : ""}</small>
+                        <small className="block truncate text-[11px] text-slate-400">📍 {placeOf(p)}{p.distance_km != null ? ` · ${p.distance_km} km` : ""}</small>
                       </div>
                     </Link>
                   ))}

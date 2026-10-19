@@ -9,6 +9,8 @@ import PropertyCard from "../components/PropertyCard.jsx";
 import MapPanel from "../components/MapPanel.jsx";
 import GeoSearch from "../components/GeoSearch.jsx";
 import { SkeletonGrid } from "../components/Skeleton.jsx";
+import LocationLock from "../components/LocationLock.jsx";
+import { canSeeLocation } from "../lib/location.js";
 
 function Counter({ target, suffix = "" }) {
   const ref = useRef();
@@ -85,7 +87,9 @@ function AISearchBar() {
 
 export default function Home() {
   usePageMeta(); // site defaults
-  const { shortlist } = useApp();
+  const { shortlist, user } = useApp();
+  const located = canSeeLocation(user); // landmark search + map are members-only
+  const [stats, setStats] = useState(null);
   const [deal, setDeal] = useState("buy");
   const [featured, setFeatured] = useState([]);
   const [all, setAll] = useState([]);
@@ -98,6 +102,7 @@ export default function Home() {
       .then(d => { setAll(d.properties); setFeatured(d.properties.slice(0, 6)); })
       .catch(() => {})
       .finally(() => setLoading(false));
+    api.get("/stats").then(setStats).catch(() => {});
   }, []);
 
   // Intelligent picks: homes in the same cities as your shortlist, not yet saved
@@ -161,11 +166,13 @@ export default function Home() {
           className="rounded-3xl bg-white/90 p-5 shadow-2xl shadow-slate-900/10 ring-1 ring-slate-200 backdrop-blur-xl"
         >
           <div className="grid items-end gap-3 md:grid-cols-[1.2fr_1.2fr_0.9fr_0.9fr_auto]">
-            <label className="block text-[11px] font-bold uppercase tracking-wide text-slate-500">City / Area
-              <input className={fieldCls + " mt-1.5"} value={form.q} onChange={e => setForm({ ...form, q: e.target.value })} placeholder="e.g. Bengaluru, Adyar" />
+            <label className="block text-[11px] font-bold uppercase tracking-wide text-slate-500">{located ? "City / Area" : "City"}
+              <input className={fieldCls + " mt-1.5"} value={form.q} onChange={e => setForm({ ...form, q: e.target.value })} placeholder={located ? "e.g. Bengaluru, Adyar" : "e.g. Coimbatore"} />
             </label>
             <label className="block text-[11px] font-bold uppercase tracking-wide text-slate-500">📍 Near a landmark
-              <div className="mt-1.5"><GeoSearch onSelect={onLandmark} /></div>
+              {located
+                ? <div className="mt-1.5"><GeoSearch onSelect={onLandmark} /></div>
+                : <Link to="/login?mode=signup&next=%2F" className={fieldCls + " mt-1.5 block font-semibold normal-case tracking-normal text-slate-400 hover:text-emerald-700"}>🔒 Sign up free to search by landmark</Link>}
             </label>
             <label className="block text-[11px] font-bold uppercase tracking-wide text-slate-500">Type
               <select className={fieldCls + " mt-1.5"} value={form.category} onChange={e => setForm({ ...form, category: e.target.value })}>
@@ -242,17 +249,20 @@ export default function Home() {
         </div>
       </Section>
 
-      {/* STATS */}
-      <Section className="mt-10">
-        <div className="grid gap-4 rounded-3xl bg-white p-8 ring-1 ring-slate-200 sm:grid-cols-4">
-          {[[1200, "+", "Homes listed"], [850, "+", "Happy families"], [7, "", "Cities covered"], [98, "%", "Visit satisfaction"]].map(([n, suf, label]) => (
-            <div key={label} className="text-center">
-              <Counter target={n} suffix={suf} />
-              <span className="mt-1 block text-sm font-semibold text-slate-500">{label}</span>
-            </div>
-          ))}
-        </div>
-      </Section>
+      {/* STATS — live figures from the database (no invented numbers) */}
+      {stats && (
+        <Section className="mt-10">
+          <div className="grid gap-4 rounded-3xl bg-white p-8 ring-1 ring-slate-200 sm:grid-cols-4">
+            {[[stats.listings, "Homes listed"], [stats.cities, stats.cities === 1 ? "City covered" : "Cities covered"],
+              [stats.localities, "Localities"], [stats.visits, "Site visits booked"]].map(([n, label]) => (
+              <div key={label} className="text-center">
+                <Counter target={n} suffix="" />
+                <span className="mt-1 block text-sm font-semibold text-slate-500">{label}</span>
+              </div>
+            ))}
+          </div>
+        </Section>
+      )}
 
       {/* FEATURED */}
       <Section className="mt-16">
@@ -333,7 +343,7 @@ export default function Home() {
       <Section className="mt-16">
         <span className="text-xs font-extrabold uppercase tracking-[0.14em] text-emerald-600">Location</span>
         <h2 className="mb-6 mt-1 text-3xl font-extrabold tracking-tight">Explore on the map</h2>
-        <MapPanel properties={featured} height={430} />
+        {located ? <MapPanel properties={featured} height={430} /> : <LocationLock text="See exactly where every home is on the map — sign up free (Google or email)." />}
       </Section>
 
       {/* TESTIMONIALS */}

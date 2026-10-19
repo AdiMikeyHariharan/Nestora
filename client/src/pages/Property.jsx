@@ -12,6 +12,8 @@ import { SkeletonProperty } from "../components/Skeleton.jsx";
 import { CalendarIcon, MailIcon, WaIcon, HeartIcon, PinIcon } from "../components/icons.jsx";
 import Chatbot from "../components/Chatbot.jsx";
 import VideoPlayer from "../components/VideoPlayer.jsx";
+import LocationLock from "../components/LocationLock.jsx";
+import { addressOf } from "../lib/location.js";
 
 const fieldCls = "w-full rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 text-sm outline-none focus:ring-2 focus:ring-emerald-500";
 const btnBase = "flex w-full items-center justify-center gap-2 rounded-xl py-3 text-sm font-bold transition-all";
@@ -59,8 +61,8 @@ export default function Property() {
   // Per-listing title/description + structured data (must run before early returns).
   const priceStr = p ? fmtPrice(p.priceINR, p.type === "rent", "INR") : "";
   usePageMeta(p ? {
-    title: `${p.title}, ${p.area} — ${priceStr}`,
-    description: `${p.title} in ${p.area}, ${p.city} (${p.pincode}). ${priceStr} · ${p.sqft} sqft${p.beds ? ` · ${p.beds} BHK` : ""}. View photos, map, EMI estimate and book a free site visit on Nestora.`
+    title: `${p.title}, ${p.area || p.city} — ${priceStr}`,
+    description: `${p.title} in ${addressOf(p)}. ${priceStr} · ${p.sqft} sqft${p.beds ? ` · ${p.beds} BHK` : ""}. View photos, map, EMI estimate and book a free site visit on Nestora.`
   } : {});
   useJsonLd(p ? propertyJsonLd(p) : null);
 
@@ -76,7 +78,8 @@ export default function Property() {
 
   if (locked) {
     const next = encodeURIComponent(`/property/${p.id}`);
-    // Public preview (also what Google indexes): up to 4 photos and the start of the description.
+    // Public preview (also what Google indexes): photos, price, size and the city.
+    // Locality, address, map and description are members-only.
     const previewPhotos = p.photos?.length ? p.photos : [p.img].filter(Boolean);
     return (
       <div className="mx-auto mt-8 w-[min(1000px,94%)] pb-10">
@@ -96,18 +99,10 @@ export default function Property() {
             )}
             <div className="bg-white p-5">
               <h1 className="text-xl font-extrabold tracking-tight">{p.title}</h1>
-              <p className="mt-1 flex items-center gap-1.5 text-sm text-slate-500"><PinIcon size={14} /> {p.area}, {p.city} — {p.pincode}</p>
+              <p className="mt-1 flex items-center gap-1.5 text-sm text-slate-500"><PinIcon size={14} /> {addressOf(p)}</p>
               <p className="mt-3 text-2xl font-extrabold text-emerald-700">{fmtPrice(p.priceINR, p.type === "rent", currency)}</p>
               <p className="mt-1 text-sm text-slate-500">{p.propertyType || "Property"} · {p.sqft} sqft{p.beds ? ` · ${p.beds} BHK` : ""}</p>
-              {p.descExcerpt && (
-                <div className="mt-4 border-t border-slate-100 pt-4">
-                  <h2 className="text-sm font-extrabold">About this property</h2>
-                  <p className="mt-1.5 text-sm leading-relaxed text-slate-500">{p.descExcerpt}</p>
-                  <Link to={`/login?mode=signup&next=${next}`} className="mt-1.5 inline-block text-sm font-bold text-emerald-700 hover:underline">
-                    {p.descExcerpt.endsWith("…") ? "Sign up free to read more →" : "Sign up free for all photos, video and visit booking →"}
-                  </Link>
-                </div>
-              )}
+              <LocationLock className="mt-4" text="Exact locality, address, map and the full description are shown to members." />
             </div>
           </div>
           <div className="rounded-3xl bg-white p-6 shadow-xl shadow-slate-900/5 ring-1 ring-slate-200">
@@ -115,7 +110,7 @@ export default function Property() {
             <p className="mt-2 text-sm text-slate-500">
               {user
                 ? "Your account isn't verified yet. Log in with an email code (or Google) to unlock the full listing."
-                : "The full description, all photos, walkthrough video, map, EMI estimate, AI assistant and site-visit booking are available to members. It's free — sign up with Google or your email."}
+                : "The exact location and map, full description, all photos, walkthrough video, EMI estimate, AI assistant and site-visit booking are available to members. It's free — sign up with Google or your email."}
             </p>
             {!user && <Link to={`/login?mode=signup&next=${next}`}
               className="mt-5 block rounded-xl bg-gradient-to-r from-emerald-600 to-teal-500 py-3 text-center font-bold text-white shadow-lg shadow-emerald-600/25 hover:brightness-110">

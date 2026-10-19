@@ -3,6 +3,7 @@ import { motion } from "motion/react";
 import { useApp } from "../store.jsx";
 import { fmtPrice, enquireEmail } from "../api.js";
 import { BedIcon, BathIcon, RulerIcon, PinIcon, HeartIcon } from "./icons.jsx";
+import { placeOf } from "../lib/location.js";
 
 export default function PropertyCard({ p, delay = 0 }) {
   const { shortlist, toggleShortlist, currency } = useApp();
@@ -59,7 +60,10 @@ export default function PropertyCard({ p, delay = 0 }) {
           )}
         </div>
         <Link to={`/property/${p.id}`} className="font-bold text-slate-900 hover:text-emerald-700">{p.title}</Link>
-        <div className="inline-flex items-center gap-1.5 text-sm text-slate-500"><PinIcon size={13} className="shrink-0 text-slate-400" /> {p.area}, {p.city} · {p.pincode}</div>
+        <div className="inline-flex items-center gap-1.5 text-sm text-slate-500">
+          <PinIcon size={13} className="shrink-0 text-slate-400" /> {placeOf(p)}{p.pincode ? ` · ${p.pincode}` : ""}
+          {!p.area && <span className="text-xs text-slate-400">· 🔒 locality after sign-up</span>}
+        </div>
         <div className="mt-1 flex flex-wrap items-center gap-2 text-[11px] font-semibold">
           {p.propertyType && (
             <span className={`rounded-md px-2 py-0.5 ${p.segment === "commercial" ? "bg-orange-50 text-orange-700" : "bg-teal-50 text-teal-700"}`}>

@@ -4,6 +4,7 @@ import L from "leaflet";
 import { Link } from "react-router-dom";
 import { fmtPrice } from "../api.js";
 import { useApp } from "../store.jsx";
+import { placeOf } from "../lib/location.js";
 
 const pricePin = (p, currency) => L.divIcon({
   className: "",
@@ -52,7 +53,7 @@ export default function MapPanel({ properties, landmark, radiusKm, height }) {
             <Popup>
               <div>
                 <b className="text-sm">{p.title}</b>
-                <span className="block text-xs text-slate-500">{p.area}, {p.city}{p.distance_km != null ? ` · ${p.distance_km} km away` : ""}</span>
+                <span className="block text-xs text-slate-500">{placeOf(p)}{p.distance_km != null ? ` · ${p.distance_km} km away` : ""}</span>
                 <Link to={`/property/${p.id}`} className="text-xs font-bold text-emerald-600">View details →</Link>
               </div>
             </Popup>

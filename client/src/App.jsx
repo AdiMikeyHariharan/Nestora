@@ -149,7 +149,7 @@ export default function App() {
   useEffect(() => { api.post("/track", { visitor: visitorId(), path: pathname }).catch(() => {}); }, [pathname]);
   // When the user is viewing a property, the WhatsApp message names that property.
   const waMessage = ap
-    ? `Hi Nestora! I'm interested in "${ap.title}" — ${ap.area}, ${ap.city} (${fmtPrice(ap.priceINR, ap.type === "rent")}).\n${window.location.origin}/property/${ap.id}\nPlease share details / book a visit.`
+    ? `Hi Nestora! I'm interested in "${ap.title}" — ${ap.area ? `${ap.area}, ${ap.city}` : ap.city} (${fmtPrice(ap.priceINR, ap.type === "rent")}).\n${window.location.origin}/property/${ap.id}\nPlease share details / book a visit.`
     : "Hi Nestora! I'd like help finding a property.";
   return (
     <>
